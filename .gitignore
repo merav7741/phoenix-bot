@@ -1,3 +1,15 @@
 .env
 .venv/
-data/NETFREE_BLOCKED_PAGES.md
+NETFREE_BLOCKED_PAGES.md
+
+# Generated crawl and vector-index data
+/data/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Local Streamlit secrets
+.streamlit/secrets.toml

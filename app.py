@@ -40,6 +40,13 @@ st.markdown(
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {{
         background: {PRIMARY_SOFT};
     }}
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
+    [data-testid="stMarkdownContainer"] * {{
+        direction: rtl;
+        text-align: right;
+    }}
 
     .src {{ margin-top: 10px; font-size: 0.82rem; }}
     .src a {{
@@ -80,7 +87,6 @@ EXAMPLES = [
 
 clicked = None
 if not st.session_state.messages:
-    st.markdown("**נסי לשאול, למשל:**")
     for ex in EXAMPLES:
         if st.button(ex, key=ex):
             clicked = ex

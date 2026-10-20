@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: phoenix-rag-bot
+    runtime: docker
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_OBJECT_KEY
+        sync: false
+      - key: R2_INDEX_SHA256
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false

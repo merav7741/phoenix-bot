@@ -166,46 +166,146 @@ class AnswerGroundingTests(unittest.TestCase):
 
 
 class ContextualFollowupTests(unittest.TestCase):
-    def test_short_referential_questions_are_detected(self):
-        for question in (
-            "ומה לגבי זה?",
-            "ואם אני שוכרת?",
-            "זה מכסה גם נזק לשכן?",
-        ):
-            with self.subTest(question=question):
-                self.assertTrue(rag._is_contextual_followup(question))
-
-    def test_standalone_questions_do_not_need_rewriting(self):
-        for question in (
-            "מה צריך לצרף לתביעה סיעודית?",
-            "איך מגישים תביעה על נזקי מים?",
-            "מה בירת צרפת?",
-        ):
-            with self.subTest(question=question):
-                self.assertFalse(rag._is_contextual_followup(question))
-
-    def test_rewrite_uses_conversation_and_returns_search_query(self):
+    def test_contextualizes_followup_from_conversation(self):
         gemini = Mock()
         gemini.models.generate_content.return_value = SimpleNamespace(
-            text="האם ביטוח צד ג בדירה מכסה נזק רטיבות אצל השכן?"
+            text=json.dumps(
+                {
+                    "search_query": (
+                        "האם ביטוח צד ג בדירה מכסה נזק רטיבות אצל השכן?"
+                    ),
+                    "clarification_question": None,
+                },
+                ensure_ascii=False,
+            )
         )
         history = [
             {"role": "user", "content": "מה כולל ביטוח צד ג בדירה?"},
             {"role": "assistant", "content": "מידע כללי על הכיסוי."},
         ]
 
-        rewritten = rag._rewrite_followup_query(
+        result = rag._contextualize_question(
             "ומה לגבי זה?",
             history,
             gemini,
         )
 
         self.assertEqual(
-            rewritten,
-            "האם ביטוח צד ג בדירה מכסה נזק רטיבות אצל השכן?",
+            result,
+            {
+                "search_query": "האם ביטוח צד ג בדירה מכסה נזק רטיבות אצל השכן?"
+            },
         )
         prompt = gemini.models.generate_content.call_args.kwargs["contents"]
         self.assertIn("מה כולל ביטוח צד ג בדירה?", prompt)
+
+    def test_standalone_question_is_preserved_in_conversation(self):
+        gemini = Mock()
+        gemini.models.generate_content.return_value = SimpleNamespace(
+            text=json.dumps(
+                {
+                    "search_query": "איך מגישים תביעה על נזקי מים בדירה?",
+                    "clarification_question": None,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+        result = rag._contextualize_question(
+            "איך מגישים תביעה על נזקי מים?",
+            [{"role": "user", "content": "איך מגישים תביעה סיעודית?"}],
+            gemini,
+        )
+
+        self.assertEqual(
+            result["search_query"],
+            "איך מגישים תביעה על נזקי מים בדירה?",
+        )
+
+    def test_ambiguous_question_returns_clarification(self):
+        gemini = Mock()
+        clarification = "את מתכוונת לתביעה הסיעודית או לנזילה בדירה?"
+        gemini.models.generate_content.return_value = SimpleNamespace(
+            text=json.dumps(
+                {
+                    "search_query": "",
+                    "clarification_question": clarification,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+        result = rag._contextualize_question(
+            "מה לעשות עכשיו?",
+            [
+                {"role": "user", "content": "איך מגישים תביעה סיעודית?"},
+                {"role": "assistant", "content": "כך מגישים תביעה."},
+                {"role": "user", "content": "יש גם נזילה בדירה."},
+            ],
+            gemini,
+        )
+
+        self.assertEqual(
+            result,
+            {"clarification_question": clarification},
+        )
+
+    def test_invalid_contextualization_response_is_rejected(self):
+        gemini = Mock()
+        gemini.models.generate_content.return_value = SimpleNamespace(
+            text="not JSON"
+        )
+
+        with self.assertRaisesRegex(RAGError, "לא ניתן להבין"):
+            rag._contextualize_question(
+                "ומה לעשות?",
+                [{"role": "user", "content": "יש נזילה בדירה."}],
+                gemini,
+            )
+
+    def test_clarification_is_returned_before_search(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db_dir = Path(temp)
+            (db_dir / "chroma.sqlite3").touch()
+
+            collection = Mock()
+            collection.count.return_value = 1
+            voyage = Mock()
+            gemini = Mock()
+            clarification = "את מתכוונת לתביעה הסיעודית או לנזילה בדירה?"
+            gemini.models.generate_content.return_value = SimpleNamespace(
+                text=json.dumps(
+                    {
+                        "search_query": "",
+                        "clarification_question": clarification,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            persistent_client = Mock()
+            persistent_client.get_collection.return_value = collection
+            history = [
+                {"role": "user", "content": "איך מגישים תביעה סיעודית?"},
+                {"role": "assistant", "content": "כך מגישים תביעה."},
+                {"role": "user", "content": "מה לעשות עכשיו?"},
+            ]
+
+            with (
+                patch.object(rag, "DB_DIR", db_dir),
+                patch.object(rag, "_clients", return_value=(voyage, gemini)),
+                patch.object(
+                    rag.chromadb,
+                    "PersistentClient",
+                    return_value=persistent_client,
+                ),
+            ):
+                result = rag.get_answer("מה לעשות עכשיו?", history)
+
+        self.assertEqual(
+            result,
+            {"answer": clarification, "sources": []},
+        )
+        voyage.embed.assert_not_called()
 
     def test_end_to_end_followup_embeds_rewritten_question(self):
         source = {
@@ -236,7 +336,15 @@ class ContextualFollowupTests(unittest.TestCase):
             gemini = Mock()
             gemini.models.generate_content.side_effect = [
                 SimpleNamespace(
-                    text="האם ביטוח צד ג בדירה מכסה נזק לשכן?"
+                    text=json.dumps(
+                        {
+                            "search_query": (
+                                "האם ביטוח צד ג בדירה מכסה נזק לשכן?"
+                            ),
+                            "clarification_question": None,
+                        },
+                        ensure_ascii=False,
+                    )
                 ),
                 SimpleNamespace(
                     text=json.dumps(

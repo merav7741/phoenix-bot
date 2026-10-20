@@ -1,0 +1,16 @@
+.env
+.git
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.streamlit/secrets.toml
+data/
+tests/
+eval/
+ingest/
+README.md
+NETFREE_BLOCKED_PAGES.md
+scripts/package_index.py
+scripts/test_*.py
