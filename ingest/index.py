@@ -1,42 +1,37 @@
+import json
 import os
 import time
 from pathlib import Path
 
 import chromadb
-import json
+import voyageai
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 
 load_dotenv()
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
 
 CHUNKS_FILE = Path("data/chunks.jsonl")
-DB_DIR = "data/chroma"
-MODEL = "gemini-embedding-001"
-BATCH = 20
+DB_DIR = "data/chroma_voyage"
+MODEL = "voyage-4"  # model names change, see the note below
+BATCH = 6
 MIN_CHARS = 150
-MAX_CHARS = 6000  # very long chunks are trimmed for embedding only
-
+MAX_CHARS = 2500
 
 def embed(texts, retries=6):
     for attempt in range(retries):
         try:
-            res = client.models.embed_content(
-                model=MODEL,
-                contents=texts,
-                config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
-            )
-            return [e.values for e in res.embeddings]
+            res = client.embed(texts, model=MODEL, input_type="document")
+            return res.embeddings
         except Exception as e:
-            wait = 5 * (attempt + 1)
+            wait = 10 * (attempt + 1)
             print(f"  embed error ({e}), retrying in {wait}s")
             time.sleep(wait)
     raise RuntimeError("embedding failed repeatedly")
 
 
 def main():
-    chunks = [json.loads(x) for x in CHUNKS_FILE.read_text(encoding="utf-8").splitlines()]
+    lines = CHUNKS_FILE.read_text(encoding="utf-8").splitlines()
+    chunks = [json.loads(x) for x in lines]
     chunks = [c for c in chunks if len(c["text"]) >= MIN_CHARS]
     print(f"Chunks to index: {len(chunks)}")
 
@@ -65,7 +60,7 @@ def main():
             ],
         )
         print(f"  indexed {min(i + BATCH, len(todo))}/{len(todo)}")
-        time.sleep(15)
+        time.sleep(20)
 
     print("Done. Total in index:", col.count())
 

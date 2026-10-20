@@ -17,21 +17,22 @@ answer, and says "this isn't on the site" when the information is missing.
 | Crawl, clean, dedupe | Done |
 | Chunking by headings | Done |
 | Vector index (Voyage + Chroma) | In progress |
-| Retrieval + abstention threshold | Planned |
-| Answer layer with verified citations | Planned |
-| Streamlit UI | UI built, connected to a placeholder answer |
+| Retrieval (Voyage + Chroma) | Implemented; short follow-ups use conversation context; threshold needs calibration |
+| Answer layer (Gemini) with retrieved citations, grounding verification, and abstention | Implemented; pending evaluation |
+| Streamlit UI | Connected to the RAG pipeline; pending end-to-end validation |
 | Evaluation set (30 questions) | Written, not yet run |
 
 ## Architecture
 ```
 sitemap -> filter -> crawl -> clean -> chunk -> embed -> Chroma
                                                           |
-question -> retrieve -> threshold -> LLM (chunks only) -> answer + source URL
+question -> contextual rewrite when needed -> retrieve -> threshold -> LLM (chunks only) -> verify cited claims -> answer + source URL
 ```
 
 ## Project structure
 ```
 app.py            Streamlit chat UI (RTL)
+rag.py            retrieve chunks and generate grounded answers
 ingest/
   map_site.py     read robots.txt and sitemap.xml
   filter_urls.py  choose sections, respect robots.txt rules
@@ -41,6 +42,8 @@ ingest/
 eval/
   questions.json          30 questions: answerable / personal / unanswerable
   negative_questions.json off-topic and manipulation questions
+tests/
+  test_rag.py             offline tests for answer boundaries and citations
 scripts/          small helper scripts
 data/             generated files (not committed)
 ```

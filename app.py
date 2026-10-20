@@ -1,5 +1,6 @@
-import re
 import streamlit as st
+
+from rag import RAGError, get_answer
 
 # Brand colors, change these if you want an exact match to the site
 PRIMARY = "#E8501C"
@@ -19,7 +20,7 @@ st.markdown(
 
     [data-testid="stBottom"] > div {{ background: #F6F4F2; }}
     [data-testid="stChatInput"] textarea {{ direction: rtl; text-align: right; }}
-    [data-testid="stMarkdownContaKiner"] p {{ text-align: right; }}
+    [data-testid="stMarkdownContainer"] p {{ text-align: right; }}
     [data-testid="stAppViewContainer"] {{ background: #F6F4F2; }}
     [data-testid="stHeader"] {{ background: transparent; }}
     .block-container {{ max-width: 720px; padding-top: 1.2rem; padding-bottom: 5rem; }}
@@ -63,21 +64,9 @@ st.markdown(
 )
 
 
-def get_answer(question, history):
-    """Dummy answer. We will replace this with the real RAG pipeline later."""
-    return {
-        "answer": "זו תשובת דמה. בהמשך כאן תופיע תשובה אמיתית מתוך האתר.",
-        "sources": ["https://www.fnx.co.il/claims-customer-service/"],
-    }
-
-
-def render_sources(urls):
-    if not urls:
-        return ""
-    links = " ".join(
-        f'<a href="{u}" target="_blank">מקור {i}</a>' for i, u in enumerate(urls, 1)
-    )
-    return f'<div class="src">{links}</div>'
+def render_sources(sources):
+    for i, source in enumerate(sources, 1):
+        st.link_button(f"מקור {i}: {source['title']}", source["url"])
 
 
 if "messages" not in st.session_state:
@@ -98,7 +87,8 @@ if not st.session_state.messages:
 
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
-        st.markdown(m["content"], unsafe_allow_html=True)
+        st.markdown(m["content"])
+        render_sources(m.get("sources", []))
 
 question = st.chat_input("שאלי אותי על ביטוח, תביעות ועוד...") or clicked
 
@@ -107,11 +97,22 @@ if question:
     with st.chat_message("user"):
         st.markdown(question)
 
-    result = get_answer(question, st.session_state.messages)
-    html = result["answer"] + render_sources(result["sources"])
+    try:
+        with st.spinner("מחפשת מידע באתר הפניקס..."):
+            result = get_answer(question, st.session_state.messages)
+    except RAGError as error:
+        st.error(str(error))
+        st.stop()
 
-    st.session_state.messages.append({"role": "assistant", "content": html})
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": result["answer"],
+            "sources": result["sources"],
+        }
+    )
     with st.chat_message("assistant"):
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(result["answer"])
+        render_sources(result["sources"])
     if clicked:
         st.rerun()
