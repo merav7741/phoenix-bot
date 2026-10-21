@@ -13,6 +13,10 @@ answer, and says "this isn't on the site" when the information is missing.
 - **Conversation context:** recent turns help resolve follow-up questions; when the
   reference is ambiguous, the bot asks a clarifying question before searching.
   The full transcript is kept only in the active Streamlit session.
+- **Typos and tone:** colloquial Hebrew and clear typing/spelling mistakes are
+  normalized for search only when retrieval is weak; answers should be clear,
+  considerate, and grounded in retrieved sources without guessing or inventing
+  contact details.
 
 ## Status
 | Component | State |
@@ -20,9 +24,9 @@ answer, and says "this isn't on the site" when the information is missing.
 | Crawl, clean, dedupe | Done |
 | Chunking by headings | Done |
 | Vector index (Voyage + Chroma) | In progress |
-| Retrieval (Voyage + Chroma) | Implemented; questions use recent conversation context; threshold needs calibration |
+| Retrieval (Voyage + Chroma) | Implemented; recent context and low-confidence typo recovery; threshold needs calibration |
 | Answer layer (Gemini) with retrieved citations, grounding verification, and abstention | Implemented; pending evaluation |
-| Streamlit UI | Connected to the RAG pipeline; pending end-to-end validation |
+| Streamlit UI | Phoenix-inspired RTL landing-page demo with a floating chat, linked sources, background answer generation, and guarded message submission |
 | Evaluation set (30 questions) | Written, not yet run |
 
 ## Architecture
@@ -34,8 +38,11 @@ question + recent conversation -> contextualize or clarify -> retrieve -> thresh
 
 ## Project structure
 ```
-app.py            Streamlit chat UI (RTL)
+app.py            Streamlit landing-page demo and floating chat UI (RTL)
 rag.py            retrieve chunks and generate grounded answers
+.streamlit/
+  config.toml     Phoenix-inspired light theme
+  blank.svg       Transparent browser-tab icon
 ingest/
   map_site.py     read robots.txt and sitemap.xml
   filter_urls.py  choose sections, respect robots.txt rules
@@ -48,7 +55,8 @@ eval/
 tests/
   test_rag.py             offline tests for answer boundaries and citations
 scripts/          small helper scripts
-data/             generated files (not committed)
+data/
+  chroma_voyage/  deployment index (included in Git; all other generated data is ignored)
 ```
 
 ## Setup
@@ -78,10 +86,24 @@ python ingest/index.py        # embed and index (resumable)
 streamlit run app.py          # start the chat UI
 ```
 
+## Deploying to Streamlit Community Cloud
+
+The app entry point is `app.py`. The active Chroma index is stored in
+`data/chroma_voyage` and is included in Git so Community Cloud receives it with
+the repository. On first use, the app copies the index to a temporary directory
+before opening it, keeping Chroma's runtime writes away from the checked-in
+index. Other generated files under `data/` remain ignored.
+
+In the Community Cloud app settings, add `GEMINI_API_KEY` and `VOYAGE_API_KEY`
+as Streamlit secrets. Do not commit API keys or `.streamlit/secrets.toml`.
+Before committing the index, check the repository's visibility: a public
+repository makes the index and its contents accessible to everyone.
+
 ## Deploying to Render
 
 The app is configured as a Render Docker Blueprint in `render.yaml`. The local
-Chroma index is intentionally excluded from Git and the Docker build context.
+Chroma index is included in Git for Community Cloud but excluded from the
+Docker build context.
 For deployment, store a ZIP of `data/chroma_voyage` in a **private** Cloudflare
 R2 bucket; the service downloads it on startup and checks its SHA-256 hash.
 

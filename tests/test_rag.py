@@ -9,6 +9,61 @@ import rag
 from rag import NOT_FOUND, OUT_OF_SCOPE, PERSONAL, RAGError, _parse_answer
 
 
+class CloudDeploymentCompatibilityTests(unittest.TestCase):
+    def tearDown(self):
+        if hasattr(self, "temporary_index"):
+            self.temporary_index.cleanup()
+        rag._load_collection.cache_clear()
+        rag._clients.cache_clear()
+
+    def test_cloud_secrets_are_used_when_environment_variables_are_missing(self):
+        voyage = Mock()
+        gemini = Mock()
+        secrets = {
+            "VOYAGE_API_KEY": "voyage-test-key",
+            "GEMINI_API_KEY": "gemini-test-key",
+        }
+
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(rag, "st", SimpleNamespace(secrets=secrets)),
+            patch.object(rag, "load_dotenv"),
+            patch.object(rag.voyageai, "Client", return_value=voyage) as voyage_client,
+            patch.object(rag.genai, "Client", return_value=gemini) as gemini_client,
+        ):
+            result = rag._clients()
+
+        self.assertEqual(result, (voyage, gemini))
+        voyage_client.assert_called_once_with(api_key="voyage-test-key")
+        gemini_client.assert_called_once_with(api_key="gemini-test-key")
+
+    def test_chroma_opens_a_temporary_copy_of_the_checked_in_index(self):
+        with tempfile.TemporaryDirectory() as temp:
+            index_path = Path(temp) / "chroma_voyage"
+            index_path.mkdir()
+            database = index_path / "chroma.sqlite3"
+            database.write_bytes(b"original-index")
+            expected_collection = Mock()
+            client = Mock()
+            client.get_collection.return_value = expected_collection
+
+            with patch.object(
+                rag.chromadb,
+                "PersistentClient",
+                return_value=client,
+            ) as persistent_client:
+                temporary_index, collection = rag._load_collection(str(index_path))
+                self.temporary_index = temporary_index
+
+                runtime_path = Path(persistent_client.call_args.kwargs["path"])
+                runtime_database = runtime_path / "chroma.sqlite3"
+                self.assertEqual(runtime_database.read_bytes(), b"original-index")
+                runtime_database.write_bytes(b"runtime-write")
+
+            self.assertIs(collection, expected_collection)
+            self.assertEqual(database.read_bytes(), b"original-index")
+
+
 class AnswerBoundaryTests(unittest.TestCase):
     def test_personal_question_gets_personal_boundary(self):
         result = _parse_answer('{"status":"personal"}', [])
@@ -25,6 +80,10 @@ class AnswerBoundaryTests(unittest.TestCase):
         result = _parse_answer('{"status":"not_found"}', [])
 
         self.assertEqual(result, {"answer": NOT_FOUND, "sources": []})
+
+    def test_not_found_response_is_clear_and_not_a_scope_error(self):
+        self.assertIn("לא מצאתי", NOT_FOUND)
+        self.assertNotIn("אני עונה רק", NOT_FOUND)
 
     def test_answer_still_requires_a_cited_retrieved_source(self):
         candidates = [
@@ -147,17 +206,10 @@ class AnswerGroundingTests(unittest.TestCase):
                 ),
                 SimpleNamespace(text='{"verdict":"not_found"}'),
             ]
-            persistent_client = Mock()
-            persistent_client.get_collection.return_value = collection
-
             with (
                 patch.object(rag, "DB_DIR", db_dir),
                 patch.object(rag, "_clients", return_value=(voyage, gemini)),
-                patch.object(
-                    rag.chromadb,
-                    "PersistentClient",
-                    return_value=persistent_client,
-                ),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
             ):
                 result = rag.get_answer(self.question)
 
@@ -166,6 +218,203 @@ class AnswerGroundingTests(unittest.TestCase):
 
 
 class ContextualFollowupTests(unittest.TestCase):
+    def test_typos_in_first_question_are_corrected_after_weak_search(self):
+        source = {
+            "text": "יש לפנות למוקד תביעות נזקי רכוש בדירה.",
+            "url": (
+                "https://www.fnx.co.il/claims-customer-service/"
+                "claims-appartment-insurance/damage-to-the-apartment/"
+            ),
+            "title": "תביעת נזק לדירה",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            db_dir = Path(temp)
+            (db_dir / "chroma.sqlite3").touch()
+
+            weak_result = {
+                "documents": [["תוכן לא קשור."]],
+                "metadatas": [
+                    [{"url": source["url"], "page_title": source["title"]}]
+                ],
+                "distances": [[0.9]],
+            }
+            relevant_result = {
+                "documents": [[source["text"]]],
+                "metadatas": [
+                    [{"url": source["url"], "page_title": source["title"]}]
+                ],
+                "distances": [[0.2]],
+            }
+            collection = Mock()
+            collection.count.return_value = 1
+            collection.query.side_effect = [weak_result, relevant_result]
+            voyage = Mock()
+            voyage.embed.side_effect = [
+                SimpleNamespace(embeddings=[[0.1, 0.2]]),
+                SimpleNamespace(embeddings=[[0.3, 0.4]]),
+            ]
+            gemini = Mock()
+            gemini.models.generate_content.side_effect = [
+                SimpleNamespace(
+                    text=json.dumps(
+                        {
+                            "search_query": (
+                                "מה עושים במקרה של נזילה בקירות הבית?"
+                            ),
+                            "uses_conversation_context": False,
+                            "clarification_question": None,
+                        },
+                        ensure_ascii=False,
+                    )
+                ),
+                SimpleNamespace(
+                    text=json.dumps(
+                        {
+                            "status": "answer",
+                            "answer": "יש לפנות למוקד תביעות נזקי רכוש בדירה.",
+                            "source_ids": [1],
+                        },
+                        ensure_ascii=False,
+                    )
+                ),
+                SimpleNamespace(text='{"verdict":"supported"}'),
+            ]
+            with (
+                patch.object(rag, "DB_DIR", db_dir),
+                patch.object(rag, "_clients", return_value=(voyage, gemini)),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
+            ):
+                result = rag.get_answer("מה עושים אם יש נזילה בקירם?")
+
+        self.assertEqual(result["answer"], "יש לפנות למוקד תביעות נזקי רכוש בדירה.")
+        self.assertEqual(result["sources"][0]["url"], source["url"])
+        self.assertEqual(
+            voyage.embed.call_args_list[1].args[0],
+            ["מה עושים במקרה של נזילה בקירות הבית?"],
+        )
+        contextualization_instruction = (
+            gemini.models.generate_content.call_args_list[0]
+            .kwargs["config"]
+            .system_instruction
+        )
+        self.assertIn("עברית מדוברת", contextualization_instruction)
+        self.assertIn("אל תשני שמות, מספרי טלפון", contextualization_instruction)
+        self.assertIn("אין להפוך שאלה כללית", contextualization_instruction)
+        self.assertEqual(collection.query.call_count, 2)
+
+    def test_successful_first_search_does_not_use_extra_gemini_call(self):
+        source = {
+            "text": "המידע הרלוונטי נמצא בעמוד.",
+            "url": "https://www.fnx.co.il/apartment-insurance/",
+            "title": "ביטוח דירה",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            db_dir = Path(temp)
+            (db_dir / "chroma.sqlite3").touch()
+            collection = Mock()
+            collection.count.return_value = 1
+            collection.query.return_value = {
+                "documents": [[source["text"]]],
+                "metadatas": [
+                    [{"url": source["url"], "page_title": source["title"]}]
+                ],
+                "distances": [[0.2]],
+            }
+            voyage = Mock()
+            voyage.embed.return_value = SimpleNamespace(embeddings=[[0.1, 0.2]])
+            gemini = Mock()
+            gemini.models.generate_content.side_effect = [
+                SimpleNamespace(
+                    text=json.dumps(
+                        {
+                            "status": "answer",
+                            "answer": "המידע הרלוונטי נמצא בעמוד.",
+                            "source_ids": [1],
+                        },
+                        ensure_ascii=False,
+                    )
+                ),
+                SimpleNamespace(text='{"verdict":"supported"}'),
+            ]
+            with (
+                patch.object(rag, "DB_DIR", db_dir),
+                patch.object(rag, "_clients", return_value=(voyage, gemini)),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
+            ):
+                result = rag.get_answer("מה כולל ביטוח דירה?")
+
+        self.assertEqual(result["answer"], "המידע הרלוונטי נמצא בעמוד.")
+        self.assertEqual(gemini.models.generate_content.call_count, 2)
+        self.assertEqual(voyage.embed.call_count, 1)
+        answer_instruction = (
+            gemini.models.generate_content.call_args_list[0]
+            .kwargs["config"]
+            .system_instruction
+        )
+        self.assertIn("בעברית טבעית, ברורה", answer_instruction)
+        self.assertIn("אל תציגי השערה כעובדה", answer_instruction)
+        self.assertIn("בלי להמציא פרטי קשר", answer_instruction)
+
+    def test_unanswered_contextual_followup_is_human_and_reuses_valid_source(self):
+        previous_source = {
+            "url": (
+                "https://www.fnx.co.il/claims-customer-service/"
+                "claims-appartment-insurance/damage-to-the-apartment/"
+            ),
+            "title": "תביעה בגין נזק בדירה",
+        }
+        result = rag._not_found_result(
+            [
+                {
+                    "role": "assistant",
+                    "content": "מידע על הגשת תביעה.",
+                    "sources": [previous_source],
+                }
+            ],
+            uses_context=True,
+        )
+
+        self.assertIn("לא מצאתי באתר הנחיות מאומתות", result["answer"])
+        self.assertIn("לא רוצה לנחש", result["answer"])
+        self.assertEqual(result["sources"], [previous_source])
+
+    def test_unrelated_question_does_not_reuse_previous_source(self):
+        previous_source = {
+            "url": "https://www.fnx.co.il/apartment-insurance/",
+            "title": "ביטוח דירה",
+        }
+        result = rag._not_found_result(
+            [
+                {
+                    "role": "assistant",
+                    "content": "מידע על ביטוח דירה.",
+                    "sources": [previous_source],
+                }
+            ],
+            uses_context=False,
+        )
+
+        self.assertEqual(result, {"answer": NOT_FOUND, "sources": []})
+
+    def test_invalid_previous_source_is_not_reused(self):
+        result = rag._not_found_result(
+            [
+                {
+                    "role": "assistant",
+                    "content": "תשובה",
+                    "sources": [
+                        {
+                            "url": "https://example.com/",
+                            "title": "מקור חיצוני",
+                        }
+                    ],
+                }
+            ],
+            uses_context=True,
+        )
+
+        self.assertEqual(result, {"answer": NOT_FOUND, "sources": []})
+
     def test_contextualizes_followup_from_conversation(self):
         gemini = Mock()
         gemini.models.generate_content.return_value = SimpleNamespace(
@@ -174,6 +423,7 @@ class ContextualFollowupTests(unittest.TestCase):
                     "search_query": (
                         "האם ביטוח צד ג בדירה מכסה נזק רטיבות אצל השכן?"
                     ),
+                    "uses_conversation_context": True,
                     "clarification_question": None,
                 },
                 ensure_ascii=False,
@@ -193,7 +443,8 @@ class ContextualFollowupTests(unittest.TestCase):
         self.assertEqual(
             result,
             {
-                "search_query": "האם ביטוח צד ג בדירה מכסה נזק רטיבות אצל השכן?"
+                "search_query": "האם ביטוח צד ג בדירה מכסה נזק רטיבות אצל השכן?",
+                "uses_conversation_context": True,
             },
         )
         prompt = gemini.models.generate_content.call_args.kwargs["contents"]
@@ -205,6 +456,7 @@ class ContextualFollowupTests(unittest.TestCase):
             text=json.dumps(
                 {
                     "search_query": "איך מגישים תביעה על נזקי מים בדירה?",
+                    "uses_conversation_context": False,
                     "clarification_question": None,
                 },
                 ensure_ascii=False,
@@ -224,7 +476,10 @@ class ContextualFollowupTests(unittest.TestCase):
 
     def test_ambiguous_question_returns_clarification(self):
         gemini = Mock()
-        clarification = "את מתכוונת לתביעה הסיעודית או לנזילה בדירה?"
+        clarification = (
+            "את מתכוונת למה לעשות כשהנזילה עדיין פעילה, או בזמן "
+            "שממתינים לטיפול בתביעה?"
+        )
         gemini.models.generate_content.return_value = SimpleNamespace(
             text=json.dumps(
                 {
@@ -236,11 +491,19 @@ class ContextualFollowupTests(unittest.TestCase):
         )
 
         result = rag._contextualize_question(
-            "מה לעשות עכשיו?",
+            "מה עושים בזמן הזה??",
             [
-                {"role": "user", "content": "איך מגישים תביעה סיעודית?"},
-                {"role": "assistant", "content": "כך מגישים תביעה."},
-                {"role": "user", "content": "יש גם נזילה בדירה."},
+                {
+                    "role": "user",
+                    "content": "יש לי נזילה בבית, איך מגישים תביעה?",
+                },
+                {
+                    "role": "assistant",
+                    "content": (
+                        "פני למרכז התביעות, מלאי טופס, צרפי תמונות וחשבונית "
+                        "או הצעת מחיר ושלחי את המסמכים."
+                    ),
+                },
             ],
             gemini,
         )
@@ -263,7 +526,7 @@ class ContextualFollowupTests(unittest.TestCase):
                 gemini,
             )
 
-    def test_clarification_is_returned_before_search(self):
+    def test_leak_claim_followup_clarifies_before_search(self):
         with tempfile.TemporaryDirectory() as temp:
             db_dir = Path(temp)
             (db_dir / "chroma.sqlite3").touch()
@@ -272,7 +535,10 @@ class ContextualFollowupTests(unittest.TestCase):
             collection.count.return_value = 1
             voyage = Mock()
             gemini = Mock()
-            clarification = "את מתכוונת לתביעה הסיעודית או לנזילה בדירה?"
+            clarification = (
+                "את מתכוונת למה לעשות כשהנזילה עדיין פעילה, או בזמן "
+                "שממתינים לטיפול בתביעה?"
+            )
             gemini.models.generate_content.return_value = SimpleNamespace(
                 text=json.dumps(
                     {
@@ -282,30 +548,99 @@ class ContextualFollowupTests(unittest.TestCase):
                     ensure_ascii=False,
                 )
             )
-            persistent_client = Mock()
-            persistent_client.get_collection.return_value = collection
             history = [
-                {"role": "user", "content": "איך מגישים תביעה סיעודית?"},
-                {"role": "assistant", "content": "כך מגישים תביעה."},
-                {"role": "user", "content": "מה לעשות עכשיו?"},
+                {
+                    "role": "user",
+                    "content": "יש לי נזילה בבית, איך מגישים תביעה?",
+                },
+                {
+                    "role": "assistant",
+                    "content": (
+                        "פני למרכז התביעות, מלאי טופס, צרפי תמונות וחשבונית "
+                        "או הצעת מחיר ושלחי את המסמכים."
+                    ),
+                },
+                {"role": "user", "content": "מה עושים בזמן הזה??"},
             ]
 
             with (
                 patch.object(rag, "DB_DIR", db_dir),
                 patch.object(rag, "_clients", return_value=(voyage, gemini)),
-                patch.object(
-                    rag.chromadb,
-                    "PersistentClient",
-                    return_value=persistent_client,
-                ),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
             ):
-                result = rag.get_answer("מה לעשות עכשיו?", history)
+                result = rag.get_answer("מה עושים בזמן הזה??", history)
 
         self.assertEqual(
             result,
             {"answer": clarification, "sources": []},
         )
         voyage.embed.assert_not_called()
+
+    def test_unretrieved_leak_followup_returns_contextual_response_and_source(self):
+        prior_source = {
+            "url": (
+                "https://www.fnx.co.il/claims-customer-service/"
+                "claims-appartment-insurance/damage-to-the-apartment/"
+            ),
+            "title": "תביעה בגין נזק בדירה",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            db_dir = Path(temp)
+            (db_dir / "chroma.sqlite3").touch()
+
+            collection = Mock()
+            collection.count.return_value = 1
+            collection.query.return_value = {
+                "documents": [["קטע לא קשור מתוך האתר."]],
+                "metadatas": [
+                    [{"url": prior_source["url"], "page_title": prior_source["title"]}]
+                ],
+                "distances": [[0.9]],
+            }
+            voyage = Mock()
+            voyage.embed.return_value = SimpleNamespace(embeddings=[[0.1, 0.2]])
+            gemini = Mock()
+            gemini.models.generate_content.return_value = SimpleNamespace(
+                text=json.dumps(
+                    {
+                        "search_query": "מה לעשות כשהמים נוזלים בקירות?",
+                        "uses_conversation_context": True,
+                        "clarification_question": None,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            history = [
+                {
+                    "role": "user",
+                    "content": "יש לי נזילה בבית, איך מגישים תביעה?",
+                },
+                {
+                    "role": "assistant",
+                    "content": "כך מגישים תביעה.",
+                    "sources": [prior_source],
+                },
+                {"role": "user", "content": "מה עושים בזמן הזה?"},
+                {
+                    "role": "assistant",
+                    "content": "האם הכוונה בזמן הנזילה או בהמתנה לתביעה?",
+                },
+                {"role": "user", "content": "בזמן שנוזל לי מים בקירות"},
+            ]
+
+            with (
+                patch.object(rag, "DB_DIR", db_dir),
+                patch.object(rag, "_clients", return_value=(voyage, gemini)),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
+            ):
+                result = rag.get_answer(
+                    "בזמן שנוזל לי מים בקירות",
+                    history,
+                )
+
+        self.assertIn("לא מצאתי באתר הנחיות מאומתות", result["answer"])
+        self.assertEqual(result["sources"], [prior_source])
+        self.assertEqual(gemini.models.generate_content.call_count, 1)
 
     def test_end_to_end_followup_embeds_rewritten_question(self):
         source = {
@@ -341,6 +676,7 @@ class ContextualFollowupTests(unittest.TestCase):
                             "search_query": (
                                 "האם ביטוח צד ג בדירה מכסה נזק לשכן?"
                             ),
+                            "uses_conversation_context": True,
                             "clarification_question": None,
                         },
                         ensure_ascii=False,
@@ -358,9 +694,6 @@ class ContextualFollowupTests(unittest.TestCase):
                 ),
                 SimpleNamespace(text='{"verdict":"supported"}'),
             ]
-            persistent_client = Mock()
-            persistent_client.get_collection.return_value = collection
-
             history = [
                 {"role": "user", "content": "מה כולל ביטוח צד ג בדירה?"},
                 {"role": "assistant", "content": "מידע כללי על הכיסוי."},
@@ -369,11 +702,7 @@ class ContextualFollowupTests(unittest.TestCase):
             with (
                 patch.object(rag, "DB_DIR", db_dir),
                 patch.object(rag, "_clients", return_value=(voyage, gemini)),
-                patch.object(
-                    rag.chromadb,
-                    "PersistentClient",
-                    return_value=persistent_client,
-                ),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
             ):
                 result = rag.get_answer("ומה לגבי זה?", history)
 
