@@ -88,18 +88,21 @@ streamlit run app.py          # start the chat UI
 
 ## Deploying to Streamlit Community Cloud
 
-The app entry point is `app.py`. Generated data and the Chroma index under
-`data/` are excluded from Git. Do not publish the index in this public
-repository: it contains text collected from the Phoenix website. A private
-index-delivery method must be configured before deploying the app.
+The app entry point is `app.py`. The active Chroma index is stored in
+`data/chroma_voyage` and included in Git so Community Cloud receives it with
+the repository. It contains text collected from public Phoenix website pages.
+On first use, the app copies the index to a temporary directory before opening
+it, keeping Chroma's runtime writes away from the checked-in index. Other
+generated files under `data/` remain ignored.
 
 In the Community Cloud app settings, add `GEMINI_API_KEY` and `VOYAGE_API_KEY`
 as Streamlit secrets. Do not commit API keys or `.streamlit/secrets.toml`.
 
 ## Deploying to Render
 
-The app is configured as a Render Docker Blueprint in `render.yaml`. The local
-Chroma index is excluded from Git and the Docker build context.
+The app is configured as a Render Docker Blueprint in `render.yaml`. The Chroma
+index is included in Git for Community Cloud but excluded from the Docker build
+context.
 For deployment, store a ZIP of `data/chroma_voyage` in a **private** Cloudflare
 R2 bucket; the service downloads it on startup and checks its SHA-256 hash.
 

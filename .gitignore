@@ -3,7 +3,11 @@
 NETFREE_BLOCKED_PAGES.md
 
 # Generated crawl data and local indexes
-/data/
+/data/*
+!/data/chroma_voyage/
+/data/chroma_voyage/*
+!/data/chroma_voyage/**/
+!/data/chroma_voyage/**
 
 # Python caches and test artifacts
 __pycache__/
