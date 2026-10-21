@@ -41,6 +41,20 @@ class RAGError(RuntimeError):
     """An actionable error while retrieving or generating an answer."""
 
 
+def _gemini_api_error_message(error):
+    if error.code == 429:
+        return (
+            "מכסת Gemini או מגבלת הבקשות נוצלה כרגע. בדקי את השימוש והמכסה "
+            "ב-Google AI Studio ונסי שוב כשהמכסה תתחדש."
+        )
+    if error.code in (401, 403):
+        return (
+            "מפתח Gemini לא תקין או שאין לו הרשאה. בדקי את המפתח "
+            "בהגדרות Secrets של Streamlit."
+        )
+    return "שירות Gemini לא זמין כרגע. נסי שוב מאוחר יותר."
+
+
 def _contextualize_question(question, prior_messages, gemini_client):
     conversation = [
         {
@@ -103,9 +117,7 @@ def _contextualize_question(question, prior_messages, gemini_client):
             ),
         )
     except genai.errors.APIError as exc:
-        raise RAGError(
-            "לא הצלחתי להבין את השאלה בהקשר כרגע. נסחי אותה כשאלה מלאה ונסי שוב."
-        ) from exc
+        raise RAGError(_gemini_api_error_message(exc)) from exc
 
     try:
         result = json.loads(response.text)
@@ -320,9 +332,7 @@ def _verify_answer(question, answer, cited_candidates, gemini_client):
             ),
         )
     except genai.errors.APIError as exc:
-        raise RAGError(
-            "לא ניתן לאמת את התשובה כרגע. בדקי את מפתח Gemini ואת המכסה ונסי שוב."
-        ) from exc
+        raise RAGError(_gemini_api_error_message(exc)) from exc
 
     try:
         result = json.loads(response.text)
@@ -507,9 +517,7 @@ def get_answer(question, history=None, on_progress=None):
             ),
         )
     except genai.errors.APIError as exc:
-        raise RAGError(
-            "שירות התשובות לא זמין כרגע. בדקי את מפתח Gemini ואת המכסה."
-        ) from exc
+        raise RAGError(_gemini_api_error_message(exc)) from exc
 
     result = _parse_answer(response.text, candidates)
     source_ids = result.pop("source_ids", None)

@@ -175,14 +175,16 @@ st.markdown(
         padding: 38px 0 0;
     }}
 
-    .st-key-chat_launcher {{
+    .st-key-chat_launcher,
+    .st-key-chat_minimized {{
         position: fixed;
         right: 28px;
         bottom: 24px;
         width: auto;
         z-index: 1000;
     }}
-    .st-key-chat_launcher button {{
+    .st-key-chat_launcher button,
+    .st-key-chat_minimized button {{
         min-height: 58px;
         border: 0;
         border-radius: 999px;
@@ -194,7 +196,8 @@ st.markdown(
         box-shadow: 0 10px 30px rgba(181, 59, 19, 0.32);
         transition: transform 150ms ease, box-shadow 150ms ease;
     }}
-    .st-key-chat_launcher button:hover {{
+    .st-key-chat_launcher button:hover,
+    .st-key-chat_minimized button:hover {{
         background: #E64D19;
         color: white;
         transform: translateY(-2px);
@@ -206,8 +209,14 @@ st.markdown(
         right: 28px;
         bottom: 96px;
         width: min(400px, calc(100vw - 32px));
-        max-height: min(650px, calc(100vh - 124px));
+        height: min(650px, calc(100vh - 124px));
+        max-height: calc(100vh - 124px);
+        display: flex;
+        overflow-x: hidden;
         overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: #B8C1CF transparent;
         padding: 0 18px 16px;
         background: white;
         border: 1px solid #E3E7EF;
@@ -301,7 +310,8 @@ st.markdown(
         line-height: 1.55;
         margin: 0;
     }}
-    .st-key-close_chat button {{
+    .st-key-close_chat button,
+    .st-key-minimize_chat button {{
         min-height: 36px;
         width: 36px;
         padding: 0;
@@ -310,7 +320,8 @@ st.markdown(
         color: #5C6678;
         background: white;
     }}
-    .st-key-close_chat button p {{
+    .st-key-close_chat button p,
+    .st-key-minimize_chat button p {{
         position: absolute;
         width: 1px;
         height: 1px;
@@ -489,6 +500,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "chat_open" not in st.session_state:
     st.session_state.chat_open = False
+if "chat_minimized" not in st.session_state:
+    st.session_state.chat_minimized = False
 if "answer_future" not in st.session_state:
     st.session_state.answer_future = None
 if "answer_progress_queue" not in st.session_state:
@@ -519,6 +532,17 @@ def _queue_question(question=None):
 
 def _close_chat():
     st.session_state.chat_open = False
+    st.session_state.chat_minimized = False
+
+
+def _minimize_chat():
+    st.session_state.chat_open = False
+    st.session_state.chat_minimized = True
+
+
+def _restore_chat():
+    st.session_state.chat_open = True
+    st.session_state.chat_minimized = False
 
 
 def _dismiss_chat_notice():
@@ -531,16 +555,24 @@ EXAMPLES = [
     "איך מגישים תביעה בביטוח בריאות?",
 ]
 
-if not st.session_state.chat_open:
+if not st.session_state.chat_open and st.session_state.chat_minimized:
+    with st.container(key="chat_minimized"):
+        st.button(
+            "המשך בשיחה",
+            key="restore_chat",
+            icon=":material/chat:",
+            type="primary",
+            on_click=_restore_chat,
+        )
+elif not st.session_state.chat_open:
     with st.container(key="chat_launcher"):
-        if st.button(
+        st.button(
             "הבוט החכם של הפניקס",
             key="open_chat",
             icon=":material/chat:",
             type="primary",
-        ):
-            st.session_state.chat_open = True
-            st.rerun()
+            on_click=_restore_chat,
+        )
 else:
     @st.fragment(
         run_every=0.4 if st.session_state.answer_future is not None else None
@@ -594,17 +626,27 @@ else:
         busy = st.session_state.answer_future is not None
         with st.container(key="chat_panel"):
             with st.container(key="chat_header"):
-                close_column, title_column = st.columns(
-                    [1, 9], vertical_alignment="center"
+                close_column, minimize_column, title_column = st.columns(
+                    [1, 1, 8], vertical_alignment="center"
                 )
                 with close_column:
-                    st.button(
+                    if st.button(
                         "סגירת חלונית הצ׳אט",
                         key="close_chat",
                         icon=":material/close:",
                         help="סגירת חלונית הצ׳אט",
-                        on_click=_close_chat,
-                    )
+                    ):
+                        _close_chat()
+                        st.rerun(scope="app")
+                with minimize_column:
+                    if st.button(
+                        "מזעור חלונית הצ׳אט",
+                        key="minimize_chat",
+                        icon=":material/minimize:",
+                        help="מזעור השיחה; התוכן יישמר",
+                    ):
+                        _minimize_chat()
+                        st.rerun(scope="app")
                 with title_column:
                     st.markdown(
                         """

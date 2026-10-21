@@ -90,6 +90,40 @@ class FloatingChatTests(unittest.TestCase):
                 next(button for button in app.button if button.key == "send_chat").disabled
             )
 
+            chat_messages = list(app.session_state["messages"])
+            next(
+                button for button in app.button if button.key == "minimize_chat"
+            ).click().run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.session_state["chat_open"])
+            self.assertTrue(app.session_state["chat_minimized"])
+            self.assertEqual(app.session_state["messages"], chat_messages)
+            self.assertTrue(
+                any(button.key == "restore_chat" for button in app.button)
+            )
+
+            next(
+                button for button in app.button if button.key == "restore_chat"
+            ).click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(app.session_state["chat_open"])
+            self.assertFalse(app.session_state["chat_minimized"])
+            self.assertEqual(app.session_state["messages"], chat_messages)
+            self.assertTrue(
+                any(
+                    "תשובת בדיקה" in item.value
+                    for item in app.markdown
+                )
+            )
+
+            next(
+                button for button in app.button if button.key == "close_chat"
+            ).click().run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.session_state["chat_open"])
+            self.assertFalse(app.session_state["chat_minimized"])
+            self.assertEqual(app.session_state["messages"], chat_messages)
+
 
 if __name__ == "__main__":
     unittest.main()

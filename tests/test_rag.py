@@ -64,6 +64,46 @@ class CloudDeploymentCompatibilityTests(unittest.TestCase):
             self.assertEqual(database.read_bytes(), b"original-index")
 
 
+class GeminiApiFailureTests(unittest.TestCase):
+    def test_quota_error_does_not_misreport_context_as_unclear(self):
+        gemini = Mock()
+        gemini.models.generate_content.side_effect = rag.genai.errors.APIError(
+            429,
+            {"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota"}},
+        )
+
+        with self.assertRaises(RAGError) as error:
+            rag._contextualize_question(
+                "ומה לגבי זה?",
+                [{"role": "user", "content": "מה כולל ביטוח דירה?"}],
+                gemini,
+            )
+
+        self.assertIn("מכסת Gemini", str(error.exception))
+        self.assertNotIn("נסחי", str(error.exception))
+
+    def test_invalid_key_error_points_to_secrets_not_quota(self):
+        error = rag.genai.errors.APIError(
+            403,
+            {"error": {"status": "PERMISSION_DENIED", "message": "invalid key"}},
+        )
+
+        message = rag._gemini_api_error_message(error)
+
+        self.assertIn("מפתח Gemini לא תקין", message)
+        self.assertNotIn("מכסת", message)
+
+    def test_other_gemini_api_errors_are_reported_as_service_unavailable(self):
+        error = rag.genai.errors.APIError(
+            503,
+            {"error": {"status": "UNAVAILABLE", "message": "unavailable"}},
+        )
+
+        message = rag._gemini_api_error_message(error)
+
+        self.assertIn("שירות Gemini לא זמין", message)
+
+
 class AnswerBoundaryTests(unittest.TestCase):
     def test_personal_question_gets_personal_boundary(self):
         result = _parse_answer('{"status":"personal"}', [])
