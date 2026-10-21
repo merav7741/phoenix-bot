@@ -26,7 +26,7 @@ answer, and says "this isn't on the site" when the information is missing.
 | Vector index (Voyage + Chroma) | In progress |
 | Retrieval (Voyage + Chroma) | Implemented; recent context and low-confidence typo recovery; threshold needs calibration |
 | Answer layer (Gemini) with retrieved citations, grounding verification, and abstention | Implemented; pending evaluation |
-| Streamlit UI | Phoenix-inspired RTL landing-page demo with a floating chat, linked sources, background answer generation, and guarded message submission |
+| Streamlit UI | Phoenix-inspired RTL landing page and floating chat with separate question and pre-claim guidance modes |
 | Evaluation set (30 questions) | Written, not yet run |
 
 ## Architecture
@@ -39,7 +39,7 @@ question + recent conversation -> contextualize or clarify -> retrieve -> thresh
 ## Project structure
 ```
 app.py            Streamlit landing-page demo and floating chat UI (RTL)
-rag.py            retrieve chunks and generate grounded answers
+rag.py            retrieve chunks, serve indexed claim-guide excerpts, and generate grounded answers
 .streamlit/
   config.toml     Phoenix-inspired light theme
   blank.svg       Transparent browser-tab icon
@@ -97,6 +97,15 @@ generated files under `data/` remain ignored.
 
 In the Community Cloud app settings, add `GEMINI_API_KEY` and `VOYAGE_API_KEY`
 as Streamlit secrets. Do not commit API keys or `.streamlit/secrets.toml`.
+
+The floating chat has two modes: **Questions** uses the RAG answer flow, while
+**Guidance** provides a pre-claim guide for the insurance categories represented
+in the index. Guidance looks up the selected official Phoenix claims page
+directly in Chroma and displays its indexed text and link; this flow does not
+call Gemini or Voyage. If a selected page has no indexed content, the app says
+so and links to the claims center rather than inventing instructions. The guide
+provides general public information only and does not determine claim
+eligibility or request personal details.
 
 ## Deploying to Render
 

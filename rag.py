@@ -239,6 +239,48 @@ def _is_phoenix_url(url):
     )
 
 
+def get_claim_guide(url):
+    parsed_url = urlparse(url)
+    if (
+        not _is_phoenix_url(url)
+        or not parsed_url.path.startswith("/claims-customer-service/")
+    ):
+        raise ValueError("Claim guides must use an official Phoenix claims URL.")
+
+    if not (DB_DIR / "chroma.sqlite3").is_file():
+        raise RAGError("אינדקס המידע עדיין לא זמין. נסי שוב מאוחר יותר.")
+
+    try:
+        _, collection = _load_collection(str(DB_DIR))
+    except (ValueError, chromadb.errors.NotFoundError) as exc:
+        raise RAGError("אינדקס המידע עדיין לא זמין. נסי שוב מאוחר יותר.") from exc
+
+    result = collection.get(
+        where={"url": url},
+        include=["documents", "metadatas"],
+    )
+    chunks = []
+    for chunk_id, document, metadata in zip(
+        result["ids"], result["documents"], result["metadatas"]
+    ):
+        if not document:
+            continue
+        suffix = chunk_id.rsplit("-", 1)[-1]
+        chunk_order = int(suffix) if suffix.isdecimal() else 0
+        chunks.append(
+            (
+                chunk_order,
+                {
+                    "title": metadata.get("header") or metadata.get("page_title") or url,
+                    "text": document,
+                    "crawled_at": metadata.get("crawled_at"),
+                },
+            )
+        )
+    chunks.sort(key=lambda item: item[0])
+    return [chunk for _, chunk in chunks]
+
+
 def _parse_answer(response_text, candidates):
     try:
         result = json.loads(response_text)

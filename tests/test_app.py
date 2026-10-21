@@ -1,13 +1,63 @@
 import threading
 import time
 import unittest
+from concurrent.futures import Future
 from pathlib import Path
+from queue import Queue
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
 
 class FloatingChatTests(unittest.TestCase):
+    def test_pre_claim_guide_uses_source_content_without_calling_gemini(self):
+        with (
+            patch("rag.get_answer") as answer,
+            patch(
+                "rag.get_claim_guide",
+                return_value=[
+                    {
+                        "title": "מידע רשמי",
+                        "text": "קטע בדיקה מהמקור הרשמי",
+                        "crawled_at": "2026-10-18",
+                    }
+                ],
+            ) as get_claim_guide,
+        ):
+            app = AppTest.from_file(
+                Path(__file__).resolve().parents[1] / "app.py",
+                default_timeout=20,
+            ).run()
+            self.assertFalse(app.exception)
+            self.assertFalse(
+                any(button.key == "show_claim_guide" for button in app.button)
+            )
+            next(
+                button for button in app.button if button.key == "open_chat"
+            ).click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state["chat_mode"], "שאלות")
+            self.assertFalse(
+                any(button.key == "show_claim_guide" for button in app.button)
+            )
+            app.radio[0].set_value("ליווי").run()
+            self.assertFalse(app.exception)
+
+            next(
+                button for button in app.button if button.key == "show_claim_guide"
+            ).click().run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(
+            get_claim_guide.call_args.args[0],
+            "https://www.fnx.co.il/claims-customer-service/claims-car-insurance/claims-property-car-insurance/",
+        )
+        answer.assert_not_called()
+        self.assertIn(
+            "קטע בדיקה מהמקור הרשמי",
+            "\n".join(item.value for item in app.markdown),
+        )
+
     def test_answer_runs_in_background_and_locks_only_send(self):
         answer_started = threading.Event()
         allow_answer = threading.Event()
@@ -26,9 +76,11 @@ class FloatingChatTests(unittest.TestCase):
                 default_timeout=20,
             ).run()
             self.assertFalse(app.exception)
-            self.assertEqual(app.button[0].key, "open_chat")
+            self.assertTrue(any(button.key == "open_chat" for button in app.button))
 
-            app.button[0].click().run()
+            next(
+                button for button in app.button if button.key == "open_chat"
+            ).click().run()
             self.assertFalse(app.exception)
             self.assertIn(
                 "שלום, איך אפשר לעזור?",
@@ -116,13 +168,41 @@ class FloatingChatTests(unittest.TestCase):
                 )
             )
 
+            app.radio[0].set_value("ליווי").run()
+            self.assertFalse(app.exception)
+            app.session_state["claim_guide_selected"] = "דירה"
+            app.session_state["chat_error"] = "שגיאת בדיקה"
+            app.session_state["pending_question"] = "שאלה ממתינה"
+            pending_future = Future()
+            app.session_state["answer_future"] = pending_future
+            app.session_state["answer_progress_queue"] = Queue()
             next(
                 button for button in app.button if button.key == "close_chat"
             ).click().run()
             self.assertFalse(app.exception)
             self.assertFalse(app.session_state["chat_open"])
             self.assertFalse(app.session_state["chat_minimized"])
-            self.assertEqual(app.session_state["messages"], chat_messages)
+            self.assertEqual(app.session_state["messages"], [])
+            self.assertEqual(app.session_state["chat_question"], "")
+            self.assertIsNone(app.session_state["answer_future"])
+            self.assertTrue(pending_future.cancelled())
+            self.assertEqual(app.session_state["chat_mode"], "שאלות")
+            self.assertNotIn("claim_guide_selected", app.session_state)
+            self.assertNotIn("pending_question", app.session_state)
+            self.assertNotIn("chat_error", app.session_state)
+            self.assertTrue(app.session_state["chat_notice_visible"])
+
+            next(
+                button for button in app.button if button.key == "open_chat"
+            ).click().run()
+            self.assertFalse(app.exception)
+            self.assertIn(
+                "שלום, איך אפשר לעזור?",
+                "\n".join(item.value for item in app.markdown),
+            )
+            self.assertFalse(
+                any("תשובת בדיקה" in item.value for item in app.markdown)
+            )
 
 
 if __name__ == "__main__":

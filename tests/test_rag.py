@@ -64,6 +64,71 @@ class CloudDeploymentCompatibilityTests(unittest.TestCase):
             self.assertEqual(database.read_bytes(), b"original-index")
 
 
+class ClaimGuideTests(unittest.TestCase):
+    def test_claim_guide_reads_only_the_selected_official_source_without_api_clients(self):
+        url = "https://www.fnx.co.il/claims-customer-service/claims-health-insurance/"
+        collection = Mock()
+        collection.get.return_value = {
+            "ids": ["guide-2", "guide-0", "guide-1"],
+            "documents": ["קטע שני", "קטע ראשון", "קטע ביניים"],
+            "metadatas": [
+                {"header": "כותרת", "crawled_at": "2026-10-18"},
+                {"header": "כותרת", "crawled_at": "2026-10-18"},
+                {"header": "כותרת", "crawled_at": "2026-10-18"},
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp:
+            index_path = Path(temp)
+            (index_path / "chroma.sqlite3").touch()
+            with (
+                patch.object(rag, "DB_DIR", index_path),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
+                patch.object(
+                    rag,
+                    "_clients",
+                    side_effect=AssertionError("The guide must not call external APIs."),
+                ),
+            ):
+                guides = rag.get_claim_guide(url)
+
+        self.assertEqual(
+            [chunk["text"] for chunk in guides],
+            ["קטע ראשון", "קטע ביניים", "קטע שני"],
+        )
+        collection.get.assert_called_once_with(
+            where={"url": url},
+            include=["documents", "metadatas"],
+        )
+
+    def test_claim_guide_rejects_non_claims_urls(self):
+        with patch.object(rag, "_load_collection") as load_collection:
+            with self.assertRaises(ValueError):
+                rag.get_claim_guide("https://example.com/claims-customer-service/")
+            with self.assertRaises(ValueError):
+                rag.get_claim_guide("https://www.fnx.co.il/health-insurance/")
+
+        load_collection.assert_not_called()
+
+    def test_claim_guide_returns_empty_when_the_selected_page_is_not_indexed(self):
+        url = "https://www.fnx.co.il/claims-customer-service/claims-health-insurance/"
+        collection = Mock()
+        collection.get.return_value = {
+            "ids": [],
+            "documents": [],
+            "metadatas": [],
+        }
+
+        with tempfile.TemporaryDirectory() as temp:
+            index_path = Path(temp)
+            (index_path / "chroma.sqlite3").touch()
+            with (
+                patch.object(rag, "DB_DIR", index_path),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
+            ):
+                self.assertEqual(rag.get_claim_guide(url), [])
+
+
 class GeminiApiFailureTests(unittest.TestCase):
     def test_quota_error_does_not_misreport_context_as_unclear(self):
         gemini = Mock()
