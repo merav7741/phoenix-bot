@@ -40,7 +40,7 @@ class FloatingChatTests(unittest.TestCase):
             self.assertFalse(
                 any(button.key == "show_claim_guide" for button in app.button)
             )
-            app.radio[0].set_value("ליווי").run()
+            app.segmented_control[0].set_value("ליווי").run()
             self.assertFalse(app.exception)
 
             next(
@@ -168,7 +168,7 @@ class FloatingChatTests(unittest.TestCase):
                 )
             )
 
-            app.radio[0].set_value("ליווי").run()
+            app.segmented_control[0].set_value("ליווי").run()
             self.assertFalse(app.exception)
             app.session_state["claim_guide_selected"] = "דירה"
             app.session_state["chat_error"] = "שגיאת בדיקה"

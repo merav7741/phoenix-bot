@@ -321,6 +321,11 @@ st.markdown(
         color: #5C6678;
         background: white;
     }}
+    .st-key-chat_mode button {{
+        min-height: 34px;
+        padding: 0.3rem 0.7rem;
+        font-size: 0.84rem;
+    }}
     .st-key-close_chat button p,
     .st-key-minimize_chat button p {{
         position: absolute;
@@ -712,12 +717,12 @@ else:
                             on_click=_dismiss_chat_notice,
                         )
 
-            chat_mode = st.radio(
+            chat_mode = st.segmented_control(
                 "איך תרצי להיעזר בבוט?",
                 ["שאלות", "ליווי"],
-                horizontal=True,
                 label_visibility="collapsed",
                 key="chat_mode",
+                width="content",
             )
 
             if chat_mode == "שאלות":
