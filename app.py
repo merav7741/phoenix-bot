@@ -544,6 +544,14 @@ if "answer_progress_queue" not in st.session_state:
     st.session_state.answer_progress_queue = None
 if "answer_progress" not in st.session_state:
     st.session_state.answer_progress = "מחפשת מידע ובודקת את המקורות..."
+if "claim_guide_future" not in st.session_state:
+    st.session_state.claim_guide_future = None
+if "claim_guide_progress_queue" not in st.session_state:
+    st.session_state.claim_guide_progress_queue = None
+if "claim_guide_progress" not in st.session_state:
+    st.session_state.claim_guide_progress = "מחפשת מידע מתאים במקורות..."
+if "pending_claim_guide_question" not in st.session_state:
+    st.session_state.pending_claim_guide_question = ""
 if "chat_notice_visible" not in st.session_state:
     st.session_state.chat_notice_visible = True
 
@@ -555,6 +563,16 @@ def _answer_executor():
 
 def _run_answer(question, history, progress_queue):
     return get_answer(question, history, on_progress=progress_queue.put)
+
+
+def _run_claim_guide(source_url, question, progress_queue):
+    from server.rag import get_claim_guide_answer
+
+    return get_claim_guide_answer(
+        source_url,
+        question=question,
+        on_progress=progress_queue.put,
+    )
 
 
 def _queue_question(question=None):
@@ -577,6 +595,13 @@ def _close_chat():
     st.session_state.answer_future = None
     st.session_state.answer_progress_queue = None
     st.session_state.answer_progress = "מחפשת מידע ובודקת את המקורות..."
+    claim_guide_future = st.session_state.get("claim_guide_future")
+    if claim_guide_future is not None:
+        claim_guide_future.cancel()
+    st.session_state.claim_guide_future = None
+    st.session_state.claim_guide_progress_queue = None
+    st.session_state.claim_guide_progress = "מחפשת מידע מתאים במקורות..."
+    st.session_state.pending_claim_guide_question = ""
     st.session_state.chat_notice_visible = True
     st.session_state.chat_mode = "שאלות"
     st.session_state.pop("claim_guide_selected", None)
@@ -615,6 +640,8 @@ def _start_claim_guide():
 
 
 def _submit_claim_guide_question():
+    if st.session_state.get("claim_guide_future") is not None:
+        return
     question = st.session_state.get("claim_guide_question", "").strip()
     selected_type = st.session_state.get("claim_guide_selected")
     source_url = CLAIM_GUIDES.get(selected_type)
@@ -627,30 +654,18 @@ def _submit_claim_guide_question():
         st.session_state.claim_guide_error = "כתבי מה קרה או מה תרצי לברר."
         return
 
-    try:
-        from server.rag import get_claim_guide_answer
-
-        result = get_claim_guide_answer(source_url, question=question)
-    except ImportError:
-        st.session_state.claim_guide_error = (
-            "רכיב הליווי לא זמין בגרסה הנוכחית. רענני את האפליקציה, "
-            "ואם ההודעה נשארת יש לעדכן את קובצי הפרויקט יחד."
-        )
-    except RAGError as error:
-        st.session_state.claim_guide_error = str(error)
-    else:
-        st.session_state.claim_guide_messages.append(
-            {
-                "question": question,
-                "answer": result["answer"],
-                "sources": result["sources"],
-            }
-        )
-        st.session_state.pop("claim_guide_error", None)
+    st.session_state.pending_claim_guide_question = question
     st.session_state.claim_guide_question = ""
+    st.session_state.pop("claim_guide_error", None)
 
 
 def _change_claim_guide_type():
+    future = st.session_state.get("claim_guide_future")
+    if future is not None:
+        future.cancel()
+    st.session_state.claim_guide_future = None
+    st.session_state.claim_guide_progress_queue = None
+    st.session_state.pending_claim_guide_question = ""
     st.session_state.claim_guide_selected = None
     st.session_state.claim_guide_messages = []
     st.session_state.claim_guide_question = ""
@@ -683,7 +698,12 @@ elif not st.session_state.chat_open:
         )
 else:
     @st.fragment(
-        run_every=0.4 if st.session_state.answer_future is not None else None
+        run_every=(
+            0.4
+            if st.session_state.answer_future is not None
+            or st.session_state.claim_guide_future is not None
+            else None
+        )
     )
     def render_chat_panel():
         future = st.session_state.answer_future
@@ -714,6 +734,46 @@ else:
                 st.session_state.scroll_after_chat_update = True
                 st.rerun(scope="app")
 
+        guide_future = st.session_state.claim_guide_future
+        if guide_future is not None:
+            progress_queue = st.session_state.claim_guide_progress_queue
+            while True:
+                try:
+                    st.session_state.claim_guide_progress = progress_queue.get_nowait()
+                except Empty:
+                    break
+
+            if guide_future.done():
+                try:
+                    result = guide_future.result()
+                except ImportError:
+                    st.session_state.claim_guide_error = (
+                        "רכיב הליווי לא זמין בגרסה הנוכחית. רענני את האפליקציה, "
+                        "ואם ההודעה נשארת יש לעדכן את קובצי הפרויקט יחד."
+                    )
+                    if st.session_state.claim_guide_messages:
+                        st.session_state.claim_guide_messages[-1]["failed"] = True
+                except RAGError as error:
+                    st.session_state.claim_guide_error = str(error)
+                    if st.session_state.claim_guide_messages:
+                        st.session_state.claim_guide_messages[-1]["failed"] = True
+                else:
+                    turn = st.session_state.claim_guide_messages[-1]
+                    turn.update(
+                        {
+                            "answer": result["answer"],
+                            "sources": result["sources"],
+                            "pending": False,
+                        }
+                    )
+                    st.session_state.pop("claim_guide_error", None)
+                finally:
+                    st.session_state.claim_guide_future = None
+                    st.session_state.claim_guide_progress_queue = None
+                    st.session_state.pending_claim_guide_question = ""
+                st.session_state.scroll_after_chat_update = True
+                st.rerun(scope="app")
+
         pending_question = st.session_state.pop("pending_question", "")
         if pending_question and st.session_state.answer_future is None:
             st.session_state.messages.append(
@@ -730,6 +790,33 @@ else:
             )
             st.session_state.scroll_after_chat_update = True
             st.rerun(scope="app")
+
+        pending_guide_question = st.session_state.pending_claim_guide_question
+        if pending_guide_question and st.session_state.claim_guide_future is None:
+            selected_type = st.session_state.get("claim_guide_selected")
+            source_url = CLAIM_GUIDES.get(selected_type)
+            if source_url:
+                st.session_state.claim_guide_messages.append(
+                    {
+                        "question": pending_guide_question,
+                        "answer": "",
+                        "sources": [],
+                        "pending": True,
+                    }
+                )
+                progress_queue = Queue()
+                st.session_state.claim_guide_progress_queue = progress_queue
+                st.session_state.claim_guide_progress = (
+                    "מחפשת מידע מתאים במקורות הרשמיים..."
+                )
+                st.session_state.claim_guide_future = _answer_executor().submit(
+                    _run_claim_guide,
+                    source_url,
+                    pending_guide_question,
+                    progress_queue,
+                )
+                st.session_state.scroll_after_chat_update = True
+                st.rerun(scope="app")
 
         busy = st.session_state.answer_future is not None
         with st.container(key="chat_panel"):
@@ -917,7 +1004,16 @@ else:
                             with st.chat_message("user"):
                                 st.markdown(turn["question"])
                             with st.chat_message("assistant"):
-                                if turn.get("answer"):
+                                if turn.get("pending"):
+                                    st.status(
+                                        f":shimmer[{st.session_state.claim_guide_progress}]",
+                                        state="running",
+                                        expanded=False,
+                                        type="compact",
+                                    )
+                                elif turn.get("failed"):
+                                    pass
+                                elif turn.get("answer"):
                                     st.markdown(turn["answer"])
                                     for index, source in enumerate(
                                         turn["sources"], 1
@@ -955,11 +1051,13 @@ else:
                                     "כדאי לבדוק לפני הגשת תביעה?"
                                 ),
                                 key="claim_guide_question",
+                                disabled=st.session_state.claim_guide_future is not None,
                             )
                             st.form_submit_button(
                                 "שליחה למלווה",
                                 key="submit_claim_guide_question",
                                 type="primary",
+                                disabled=st.session_state.claim_guide_future is not None,
                                 on_click=_submit_claim_guide_question,
                             )
 

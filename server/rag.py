@@ -55,7 +55,11 @@ class _GeminiFailoverModels:
                     exc.code == 401
                     or getattr(exc, "status", None) == "API_KEY_INVALID"
                 )
-                if not invalid_key or index == len(self._clients) - 1:
+                quota_limited = exc.code == 429
+                if (
+                    not (invalid_key or quota_limited)
+                    or index == len(self._clients) - 1
+                ):
                     raise
 
 
@@ -397,8 +401,10 @@ def _gemini_client():
     return _GeminiFailoverClient([genai.Client(api_key=key) for key in keys])
 
 
-def get_claim_guide_answer(url, question):
+def get_claim_guide_answer(url, question, on_progress=None):
     """Synthesize a practical, source-grounded answer for the pre-claim guide."""
+    if on_progress:
+        on_progress("מחפשת במקורות הרשמיים מידע שמתאים לשאלה...")
     chunks = get_claim_guide(url, question=question)
     if not chunks:
         return {"answer": NOT_FOUND, "sources": []}
@@ -434,6 +440,8 @@ def get_claim_guide_answer(url, question):
         f"שאלת המשתמשת: {question}\n\nקטעים רשמיים שנמצאו:\n{context}"
     )
     gemini_client = _gemini_client()
+    if on_progress:
+        on_progress("מנסחת תשובה קצרה על סמך המקורות...")
     try:
         response = gemini_client.models.generate_content(
             model=ANSWER_MODEL,
@@ -452,6 +460,8 @@ def get_claim_guide_answer(url, question):
     if not source_ids:
         return result
 
+    if on_progress:
+        on_progress("בודקת שהתשובה נתמכת במידע שמצאתי...")
     verdict = _verify_answer(
         question,
         result["answer"],

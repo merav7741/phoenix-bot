@@ -272,25 +272,27 @@ class GeminiApiFailureTests(unittest.TestCase):
         first_client.models.generate_content.assert_called_once()
         second_client.models.generate_content.assert_not_called()
 
-    def test_quota_error_does_not_try_another_key(self):
+    def test_quota_error_falls_back_to_next_configured_key(self):
         first_client = Mock()
         first_client.models.generate_content.side_effect = rag.genai.errors.APIError(
             429,
             {"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota"}},
         )
         second_client = Mock()
+        expected_response = object()
+        second_client.models.generate_content.return_value = expected_response
         failover_client = rag._GeminiFailoverClient(
             [first_client, second_client]
         )
 
-        with self.assertRaises(rag.genai.errors.APIError):
-            failover_client.models.generate_content(
-                model=rag.ANSWER_MODEL,
-                contents="test",
-            )
+        result = failover_client.models.generate_content(
+            model=rag.ANSWER_MODEL,
+            contents="test",
+        )
 
+        self.assertIs(result, expected_response)
         first_client.models.generate_content.assert_called_once()
-        second_client.models.generate_content.assert_not_called()
+        second_client.models.generate_content.assert_called_once()
 
     def test_quota_error_does_not_misreport_context_as_unclear(self):
         gemini = Mock()
