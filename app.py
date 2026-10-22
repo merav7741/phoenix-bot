@@ -281,6 +281,52 @@ st.markdown(
         margin-inline: auto;
         box-sizing: border-box;
     }}
+    .st-key-claim_guide_start_form,
+    .st-key-claim_guide_start_form [data-testid="stSelectbox"],
+    .st-key-claim_guide_start_form [data-baseweb="select"] {{
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_body .st-key-claim_guide_start_form {{
+        width: calc(100% - 20px);
+        max-width: 340px;
+        margin-inline: auto;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_body .st-key-claim_guide_start_form form {{
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_body [data-testid="stForm"] {{
+        width: calc(100% - 24px) !important;
+        max-width: 340px !important;
+        margin-inline: auto !important;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_body [data-testid="stSelectbox"] {{
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_body [data-testid="stSelectbox"] [data-baseweb="select"] > div {{
+        min-width: 0;
+        min-height: 44px;
+        border: 1px solid #D6DCE6;
+        border-radius: 10px;
+        box-sizing: border-box;
+    }}
+    .st-key-claim_guide_start_form [data-baseweb="select"] > div {{
+        min-width: 0;
+        box-sizing: border-box;
+    }}
+    .st-key-claim_guide_start_form [data-baseweb="select"] [role="combobox"] {{
+        direction: rtl;
+        text-align: right;
+    }}
     .st-key-chat_header .brand-line {{
         color: {PRIMARY};
         font-size: 0.76rem;
