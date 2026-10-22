@@ -35,8 +35,14 @@ class CloudDeploymentCompatibilityTests(unittest.TestCase):
 
         self.assertIs(result[0], voyage)
         self.assertIsInstance(result[1], rag._GeminiFailoverClient)
-        voyage_client.assert_called_once_with(api_key="voyage-test-key")
-        gemini_client.assert_called_once_with(api_key="gemini-test-key")
+        voyage_client.assert_called_once()
+        self.assertEqual(
+            voyage_client.call_args.kwargs["api_key"], "voyage-test-key"
+        )
+        gemini_client.assert_called_once()
+        self.assertEqual(
+            gemini_client.call_args.kwargs["api_key"], "gemini-test-key"
+        )
 
     def test_multiple_gemini_keys_are_loaded_in_configured_order(self):
         voyage = Mock()

@@ -12,6 +12,7 @@ from threading import RLock
 from urllib.parse import urlparse
 
 import chromadb
+import httpx
 import streamlit as st
 import voyageai
 from dotenv import load_dotenv
@@ -26,6 +27,10 @@ ANSWER_MODEL = "gemini-2.5-flash"
 # Tried with every key when ANSWER_MODEL fails, e.g. for keys from newer
 # projects that no longer have access to ANSWER_MODEL.
 FALLBACK_ANSWER_MODELS = ("gemini-3.8-flash",)
+# A hung request must not leave the user waiting forever.
+GEMINI_REQUEST_TIMEOUT_MS = 45_000
+GEMINI_FAILOVER_BUDGET_SECONDS = 90
+VOYAGE_REQUEST_TIMEOUT_SECONDS = 20
 RESULTS_COUNT = 5
 # Provisional cosine-distance cutoff; calibrate it against the evaluation set.
 MAX_COSINE_DISTANCE = 0.55
@@ -73,17 +78,33 @@ class _GeminiFailoverModels:
             attempts.remove(self._last_working)
             attempts.insert(0, self._last_working)
         last_error = None
+        deadline = time.monotonic() + GEMINI_FAILOVER_BUDGET_SECONDS
         for candidate_model, index in attempts:
+            if last_error is not None and time.monotonic() > deadline:
+                break
             try:
                 response = self._clients[index].models.generate_content(
                     model=candidate_model, **kwargs
                 )
-            except genai.errors.APIError as exc:
+            except (genai.errors.APIError, httpx.HTTPError) as exc:
                 last_error = exc
                 continue
             self._last_working = (candidate_model, index)
             return response
-        raise last_error
+        if isinstance(last_error, genai.errors.APIError):
+            raise last_error
+        # Timeouts and network errors are reported like an unavailable service.
+        raise genai.errors.APIError(
+            503,
+            {"error": {"status": "UNAVAILABLE", "message": str(last_error)}},
+        ) from last_error
+
+
+def _new_gemini_client(api_key):
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
+    )
 
 
 class _GeminiFailoverClient:
@@ -273,9 +294,13 @@ def _clients():
             "הוסיפי אותם לקובץ .env המקומי או ל-Streamlit secrets."
         )
     return (
-        voyageai.Client(api_key=voyage_key),
+        voyageai.Client(
+            api_key=voyage_key,
+            max_retries=1,
+            timeout=VOYAGE_REQUEST_TIMEOUT_SECONDS,
+        ),
         _GeminiFailoverClient(
-            [genai.Client(api_key=key) for key in gemini_keys]
+            [_new_gemini_client(key) for key in gemini_keys]
         ),
     )
 
@@ -421,7 +446,7 @@ def _gemini_client():
         raise RAGError(
             "חסר מפתח GEMINI_API_KEY. הוסיפי אותו בהגדרות הסביבה של השירות."
         )
-    return _GeminiFailoverClient([genai.Client(api_key=key) for key in keys])
+    return _GeminiFailoverClient([_new_gemini_client(key) for key in keys])
 
 
 def get_claim_guide_answer(url, question, on_progress=None):
