@@ -146,25 +146,16 @@ request personal details.
 
 The Angular + FastAPI app is configured as a Render Docker Blueprint in
 `render.yaml`. Docker compiles `frontend/` and starts the API in
-`server/api.py`; `/api/health` is the service health check. The Chroma index is
-included in Git for Community Cloud but excluded from the Docker build context.
-For deployment, store a ZIP of `data/chroma_voyage` in a **private** Cloudflare
-R2 bucket; the service downloads it on startup and checks its SHA-256 hash.
+`server/api.py`; `/api/health` is the service health check. The Chroma index in
+`data/chroma_voyage` is included in the Docker image, so deployment does not
+require a separate object-storage account or persistent disk.
 
-1. Build the archive locally after the index is ready:
-   `python scripts/package_index.py`
-2. Upload `data/phoenix-index.zip` to a private R2 bucket.
-3. In Render, create a Blueprint from this repository and configure the
-   variables listed in `render.yaml`. Set `R2_INDEX_SHA256` to the hash printed
-   by the packaging script. Keep API keys and R2 credentials in Render's
-   environment settings, never in Git.
-
-Add `VOYAGE_API_KEY`, `GEMINI_API_KEY`, and any configured
-`GEMINI_API_KEY1` through `GEMINI_API_KEY8` in Render's environment settings.
-Never put these keys in Angular or commit them. Render's free service may sleep
-when idle. After a restart it may need to download the index again; no scheduled
-pings are configured to keep it awake. Chat history is kept in browser session
-memory and is not stored in a database.
+Create a Blueprint from this repository and configure the Gemini and Voyage
+API keys in Render's environment settings if they are available. Never put
+these keys in Angular or commit them to Git. No R2 credentials are needed. The
+free Render service may sleep when idle, and its local files are temporary;
+each new image contains the checked-in index. Chat history is kept in browser
+session memory and is not stored in a database.
 
 ## How content was collected
 - URLs come from the site's `sitemap.xml` (1,643 URLs). We selected the

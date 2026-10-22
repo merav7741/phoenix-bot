@@ -9,7 +9,9 @@ __pycache__/
 .pytest_cache/
 .coverage
 .streamlit/secrets.toml
-data/
+data/*
+!data/chroma_voyage/
+!data/chroma_voyage/**
 tests/
 eval/
 ingest/
