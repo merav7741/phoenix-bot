@@ -1,0 +1,23 @@
+<section class="topics-section" id="topics">
+  <div class="section-heading">
+    <div>
+      <p class="section-kicker">עזרה שמתחילה בהקשבה</p>
+      <h2>במה נוכל לעזור?</h2>
+    </div>
+    <p class="section-description">בחרי נושא או פשוט שאלי אותנו בצ׳אט.</p>
+  </div>
+  <div class="topic-grid">
+    @for (topic of topics; track topic.title) {
+      <button class="topic-card" type="button" (click)="openChat.emit()">
+        <span class="topic-index">{{ topic.icon }}</span>
+        <span class="topic-arrow" aria-hidden="true">↗</span>
+        <span class="topic-title">{{ topic.title }}</span>
+        <span class="topic-description">{{ topic.description }}</span>
+      </button>
+    }
+  </div>
+  <div class="bottom-note">
+    <span class="bottom-note-icon" aria-hidden="true">i</span>
+    <span>הבוט מספק מידע כללי ואינו ניגש לפרטי פוליסה אישיים.</span>
+  </div>
+</section>

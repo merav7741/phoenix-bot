@@ -1,4 +1,6 @@
 streamlit==1.66.0
+fastapi==0.135.1
+uvicorn[standard]==0.41.0
 requests==2.34.2
 beautifulsoup4==4.15.0
 lxml==6.1.3

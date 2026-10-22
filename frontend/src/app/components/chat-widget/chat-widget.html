@@ -1,0 +1,192 @@
+@if (!isOpen && isMinimized) {
+  <button class="chat-launcher minimized-launcher" type="button" (click)="restore()">
+    <span class="launcher-icon" aria-hidden="true">✦</span>
+    <span>המשך בשיחה</span>
+  </button>
+} @else if (!isOpen) {
+  <button class="chat-launcher" type="button" (click)="open()">
+    <span class="launcher-icon" aria-hidden="true">✦</span>
+    <span>הבוט החכם של הפניקס</span>
+  </button>
+}
+
+@if (isOpen) {
+  <section class="chat-panel" aria-label="הבוט החכם של הפניקס">
+    <header class="chat-header">
+      <div class="chat-brand">
+        <span class="chat-avatar" aria-hidden="true">פ</span>
+        <div>
+          <p class="chat-brand-kicker">הפניקס · מידע ושירות</p>
+          <h2>העוזרת הדיגיטלית</h2>
+          <span class="online-status"><i></i> כאן כדי לעזור</span>
+        </div>
+      </div>
+      <div class="chat-controls">
+        <button type="button" class="icon-control" aria-label="מזעור חלונית הצ׳אט" title="מזעור – שומר את השיחה" (click)="minimize()">−</button>
+        <button type="button" class="icon-control close-control" aria-label="מחיקת השיחה וסגירה" title="סגירה ומחיקת כל ההודעות" (click)="closeAndClear()">×</button>
+      </div>
+    </header>
+
+    <div class="chat-disclaimer">
+      <span aria-hidden="true">ⓘ</span>
+      המידע מבוסס על מקורות ציבוריים ואינו כולל פרטי פוליסה אישיים.
+    </div>
+
+    <div class="chat-modes" role="tablist" aria-label="בחירת אופן העזרה">
+      <button type="button" role="tab" [attr.aria-selected]="mode === 'questions'" [class.active]="mode === 'questions'" (click)="setMode('questions')">
+        <span aria-hidden="true">◌</span> שאלות
+      </button>
+      <button type="button" role="tab" [attr.aria-selected]="mode === 'guide'" [class.active]="mode === 'guide'" (click)="setMode('guide')">
+        <span aria-hidden="true">↗</span> ליווי
+      </button>
+    </div>
+
+    @if (mode === 'questions') {
+      <div class="message-list" #messageList aria-live="polite" aria-relevant="additions text">
+        @if (messages.length === 0) {
+          <div class="chat-welcome">
+            <span class="welcome-spark" aria-hidden="true">✦</span>
+            <h3>שלום, איך אפשר לעזור?</h3>
+            <p>שאלי אותי על ביטוח, כיסוי או תביעה — ואחפש מידע ממקור רשמי.</p>
+          </div>
+          <div class="suggestion-list">
+            <span class="suggestion-heading">אפשר להתחיל באחת השאלות:</span>
+            @for (suggestion of suggestions; track suggestion) {
+              <button type="button" class="suggestion" [disabled]="busy" (click)="useSuggestion(suggestion)">
+                {{ suggestion }} <span aria-hidden="true">←</span>
+              </button>
+            }
+          </div>
+        }
+        @for (message of messages; track $index) {
+          <article class="message-row" [class.user-row]="message.role === 'user'">
+            @if (message.role === 'assistant') {
+              <span class="message-avatar" aria-hidden="true">פ</span>
+            }
+            <div class="message-bubble" [class.user-bubble]="message.role === 'user'">
+              <p>{{ message.content }}</p>
+              @if (message.sources?.length) {
+                <div class="source-list">
+                  @for (source of message.sources; track source.url) {
+                    <a class="source-link" [href]="source.url" target="_blank" rel="noopener noreferrer">
+                      <span aria-hidden="true">↗</span> {{ source.title }}
+                    </a>
+                  }
+                </div>
+              }
+            </div>
+          </article>
+        }
+      </div>
+      @if (busy) {
+        <div class="typing-indicator" role="status"><span></span><span></span><span></span> מחפשת מידע ובודקת מקורות…</div>
+      }
+      @if (error) {
+        <p class="chat-error" role="alert">{{ error }}</p>
+      }
+      <form class="chat-composer" (ngSubmit)="sendQuestion()">
+        <label class="visually-hidden" for="question-input">כתבי את השאלה שלך</label>
+        <textarea
+          #questionInput
+          id="question-input"
+          name="question"
+          rows="1"
+          maxlength="2000"
+          [(ngModel)]="draft"
+          placeholder="כתבי שאלה על ביטוח או תביעה…"
+          [disabled]="busy"
+          (keydown)="handleEnter($event, 'questions')"
+        ></textarea>
+        <button class="send-button" type="submit" aria-label="שליחת השאלה" [disabled]="busy || !draft.trim()">
+          <span aria-hidden="true">↑</span>
+        </button>
+      </form>
+      <p class="composer-hint">Enter לשליחה · Shift+Enter לשורה חדשה</p>
+    } @else {
+      <div class="message-list guide-list" #messageList aria-live="polite" aria-relevant="additions text">
+        @if (!insuranceType) {
+          <div class="guide-intro">
+            <span class="welcome-spark" aria-hidden="true">✦</span>
+            <h3>היי, אני המלווה של הפניקס</h3>
+            <p>באיזה סוג ביטוח תרצי שאלווה אותך?</p>
+          </div>
+          @if (!hasLoadedGuideOptions) {
+            <div class="loading-options" role="status">טוענת את תחומי הביטוח…</div>
+          } @else {
+            <div class="guide-picker">
+              <label for="insurance-type">בחירת תחום ביטוח</label>
+              <select id="insurance-type" name="insuranceType" [(ngModel)]="insuranceType">
+                <option value="" disabled>בחרי תחום מהרשימה</option>
+                @for (option of guideOptions; track option.name) {
+                  <option [value]="option.name">{{ option.name }}</option>
+                }
+              </select>
+              <p>אחרי הבחירה, ספרי לי בקצרה מה קרה או מה תרצי לברר.</p>
+            </div>
+          }
+        } @else {
+          <div class="selected-guide">
+            <div>
+              <span class="selected-label">מסלול הליווי שלך</span>
+              <strong>{{ insuranceType }}</strong>
+            </div>
+            <button type="button" class="change-type" (click)="chooseAnotherType()">שינוי תחום</button>
+          </div>
+          @if (!guideTurns.length) {
+            <div class="guide-intro compact-intro">
+              <h3>אני איתך, נתקדם יחד.</h3>
+              <p>ספרי לי בקצרה מה קרה או מה תרצי לברר. אין צורך לשתף פרטים אישיים.</p>
+            </div>
+          }
+          @for (turn of guideTurns; track $index) {
+            <article class="message-row user-row">
+              <div class="message-bubble user-bubble"><p>{{ turn.question }}</p></div>
+            </article>
+            @if (turn.chunks.length) {
+              <div class="guide-result">
+                <p class="guide-result-heading">מצאתי מידע שעשוי לעזור:</p>
+                @for (chunk of turn.chunks; track chunk.url + chunk.title) {
+                  <article class="guide-source-card">
+                    <h4>{{ chunk.title }}</h4>
+                    <p>{{ chunk.text }}</p>
+                    <a [href]="chunk.url" target="_blank" rel="noopener noreferrer">לקריאת המקור המלא <span aria-hidden="true">↗</span></a>
+                  </article>
+                }
+              </div>
+            } @else if (!busy) {
+              <div class="guide-empty">
+                <p>לא מצאתי כרגע קטע מתאים באינדקס. כדי לא לנחש, כדאי לעיין במרכז התביעות הרשמי.</p>
+                <a href="https://www.fnx.co.il/claims-customer-service/" target="_blank" rel="noopener noreferrer">פתיחת מרכז התביעות ↗</a>
+              </div>
+            }
+          }
+        }
+      </div>
+      @if (busy) {
+        <div class="typing-indicator" role="status"><span></span><span></span><span></span> מחפשת מידע במקורות הרשמיים…</div>
+      }
+      @if (error) {
+        <p class="chat-error" role="alert">{{ error }}</p>
+      }
+      @if (insuranceType) {
+        <form class="chat-composer" (ngSubmit)="sendGuideQuestion()">
+          <label class="visually-hidden" for="guide-input">ספרי מה תרצי לברר</label>
+          <textarea
+            id="guide-input"
+            name="guideQuestion"
+            rows="1"
+            maxlength="2000"
+            [(ngModel)]="guideDraft"
+            placeholder="ספרי לי מה קרה או מה תרצי לברר…"
+            [disabled]="busy"
+            (keydown)="handleEnter($event, 'guide')"
+          ></textarea>
+          <button class="send-button" type="submit" aria-label="שליחת הודעה" [disabled]="busy || !guideDraft.trim()">
+            <span aria-hidden="true">↑</span>
+          </button>
+        </form>
+        <p class="composer-hint">מידע כללי בלבד · אין לשתף מספרי זהות או פרטי פוליסה</p>
+      }
+    }
+  </section>
+}

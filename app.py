@@ -4,11 +4,11 @@ from queue import Empty, Queue
 import streamlit as st
 
 from rag import RAGError, get_answer
+from server.guide_catalog import CLAIM_GUIDES, CLAIMS_CENTER_URL
 
 PRIMARY = "#F15A24"
 NAVY = "#101D3A"
 INK = "#17233B"
-CLAIMS_CENTER_URL = "https://www.fnx.co.il/claims-customer-service/"
 
 st.set_page_config(
     page_title="הבוט החכם של הפניקס",
@@ -248,6 +248,7 @@ st.markdown(
         font-size: 1.05rem;
         font-weight: 750;
         margin: 0;
+        text-align: right;
     }}
     .st-key-chat_header .brand-desc {{
         color: #70798A;
@@ -256,17 +257,15 @@ st.markdown(
     }}
     .st-key-chat_header > [data-testid="stHorizontalBlock"] {{
         align-items: center;
-        gap: 6px;
+        gap: 8px;
     }}
     .st-key-chat_header > [data-testid="stHorizontalBlock"] > [data-testid="column"]:has(.st-key-close_chat),
     .st-key-chat_header > [data-testid="stHorizontalBlock"] > [data-testid="column"]:has(.st-key-minimize_chat) {{
-        flex: 0 0 42px !important;
-        width: 42px !important;
-        min-width: 42px !important;
-        padding: 3px;
-        border: 1px solid #F7B28F;
-        border-radius: 12px;
-        background: #FFF3EC;
+        flex: 0 0 36px !important;
+        width: 36px !important;
+        min-width: 36px !important;
+        padding: 0;
+        align-self: center;
         box-sizing: border-box;
     }}
     .st-key-chat_header > [data-testid="stHorizontalBlock"] > [data-testid="column"]:has(.st-key-close_chat) > div,
@@ -332,19 +331,23 @@ st.markdown(
     }}
     .st-key-close_chat button,
     .st-key-minimize_chat button {{
-        min-height: 36px;
-        width: 100%;
+        min-height: 34px;
+        height: 34px;
+        width: 34px;
         padding: 0;
-        border: 0;
-        border-radius: 8px;
+        border: 1px solid #F3C2AA;
+        border-radius: 9px;
         color: #9A451F;
-        background: transparent;
+        background: #FFF8F4;
+        box-shadow: 0 1px 2px rgba(16, 29, 58, 0.06);
+        transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
     }}
     .st-key-close_chat button:hover,
     .st-key-minimize_chat button:hover {{
-        border: 0;
+        border-color: #F15A24;
         color: #7C3215;
-        background: #FFE3D4;
+        background: #FFF0E8;
+        transform: translateY(-1px);
     }}
     .st-key-chat_mode button {{
         min-height: 34px;
@@ -521,23 +524,6 @@ for index, (column, (icon, title, description)) in enumerate(
             st.markdown(icon)
             st.markdown(f"### {title}")
             st.caption(description)
-
-CLAIM_GUIDES = {
-    "רכב — נזק לרכב": f"{CLAIMS_CENTER_URL}claims-car-insurance/claims-property-car-insurance/",
-    "רכב — ביטוח חובה": f"{CLAIMS_CENTER_URL}claims-car-insurance/compulsory-motor-claims/",
-    "רכב — צד ג׳": f"{CLAIMS_CENTER_URL}claims-car-insurance-third-party/",
-    "דירה": f"{CLAIMS_CENTER_URL}claims-appartment-insurance/",
-    "בריאות": f"{CLAIMS_CENTER_URL}claims-health-insurance/",
-    "שיניים": f"{CLAIMS_CENTER_URL}claims-dental-insurance/",
-    "נסיעות לחו״ל": f"{CLAIMS_CENTER_URL}claims-travel-abroad/",
-    "חיים": f"{CLAIMS_CENTER_URL}claims-life-insurance/",
-    "תאונות אישיות": f"{CLAIMS_CENTER_URL}claims-personal-accident-insurance/",
-    "חיות מחמד": f"{CLAIMS_CENTER_URL}claims-pets/",
-    "עסק": f"{CLAIMS_CENTER_URL}claims-business-insurance/",
-    "אחריות": f"{CLAIMS_CENTER_URL}claims-liability-insurance/",
-    "סיעוד": f"{CLAIMS_CENTER_URL}claims-supportive-insurance/",
-    "לא בטוחה / סוג אחר": CLAIMS_CENTER_URL,
-}
 
 st.markdown(
     '<p class="prototype-note">אב־טיפוס להדגמה · המידע והתשובות מבוססים על מקורות ציבוריים באתר</p>',

@@ -38,8 +38,14 @@ question + recent conversation -> contextualize or clarify -> retrieve -> thresh
 
 ## Project structure
 ```
-app.py            Streamlit landing-page demo and floating chat UI (RTL)
-rag.py            retrieve chunks, serve indexed claim-guide excerpts, and generate grounded answers
+app.py            legacy Streamlit demo (kept available)
+server/
+  api.py          FastAPI endpoints and production delivery for the Angular app
+  guide_catalog.py shared list of supported insurance guidance flows
+rag.py            shared retrieval, grounded answers, and claim-guide excerpts
+frontend/
+  src/app/        standalone Angular components for the Hebrew RTL experience
+  proxy.conf.json local API proxy for Angular development
 .streamlit/
   config.toml     Phoenix-inspired light theme
   blank.svg       Transparent browser-tab icon
@@ -54,6 +60,7 @@ eval/
   negative_questions.json off-topic and manipulation questions
 tests/
   test_rag.py             offline tests for answer boundaries and citations
+  test_api.py             FastAPI contract and validation tests
 scripts/          small helper scripts
 data/
   chroma_voyage/  deployment index (included in Git; all other generated data is ignored)
@@ -75,20 +82,40 @@ data/
    VOYAGE_API_KEY=...
 ```
 
-## Run
-Run everything from the project root:
+## Run locally
+Install Python dependencies from the project root and start the API:
 ```
-python ingest/map_site.py     # list URLs from the sitemap
-python ingest/filter_urls.py  # select relevant sections
-python ingest/crawl.py        # download and clean pages
-python ingest/chunk.py        # create data/chunks.jsonl
-python ingest/index.py        # embed and index (resumable)
-streamlit run app.py          # start the chat UI
+pip install -r requirements.txt
+python -m uvicorn server.api:app --reload --port 8000
+```
+
+In another terminal, run the Angular development server:
+```
+cd frontend
+npm ci
+npm start
+```
+
+The Angular development server proxies `/api` requests to FastAPI. Use npm 11
+for dependency installation (`npx npm@11 ci`) to match the pinned Docker build.
+In production, Angular is compiled into the Docker image and served by FastAPI
+from the same origin as the API. The legacy Streamlit demo can still be
+started separately with `streamlit run app.py`.
+
+To rebuild the public source index when needed:
+```
+python ingest/map_site.py
+python ingest/filter_urls.py
+python ingest/crawl.py
+python ingest/chunk.py
+python ingest/index.py
 ```
 
 ## Deploying to Streamlit Community Cloud
 
-The app entry point is `app.py`. The active Chroma index is stored in
+The Community Cloud app continues to use the legacy Streamlit entry point
+`app.py`; it is separate from the Angular + FastAPI frontend. The active
+Chroma index is stored in
 `data/chroma_voyage` and included in Git so Community Cloud receives it with
 the repository. It contains text collected from public Phoenix website pages.
 On first use, the app copies the index to a temporary directory before opening
@@ -99,9 +126,9 @@ In the Community Cloud app settings, add `GEMINI_API_KEY` and `VOYAGE_API_KEY`
 as Streamlit secrets. Do not commit API keys or `.streamlit/secrets.toml`.
 For service continuity, you may also configure up to eight additional Gemini
 keys as `GEMINI_API_KEY1` through `GEMINI_API_KEY8` (or with an underscore
-before the number). The app tries the next configured key only after an
-authentication/permission error (401/403). A quota or rate-limit response
-(429) is reported as-is and does not trigger key switching; separate keys do
+before the number). The app tries the next configured key only when Gemini
+identifies an invalid key (`API_KEY_INVALID`) or returns 401. A quota or
+rate-limit response (429) is reported as-is and does not trigger key switching; separate keys do
 not combine quotas or provide a way around Google AI Studio limits. Use keys
 only for projects and accounts you are authorized to administer.
 
@@ -115,11 +142,12 @@ to the claims center rather than inventing instructions. The guide provides
 general public information only and does not determine claim eligibility or
 request personal details.
 
-## Deploying to Render
+## Deploying the Angular app to Render
 
-The app is configured as a Render Docker Blueprint in `render.yaml`. The Chroma
-index is included in Git for Community Cloud but excluded from the Docker build
-context.
+The Angular + FastAPI app is configured as a Render Docker Blueprint in
+`render.yaml`. Docker compiles `frontend/` and starts the API in
+`server/api.py`; `/api/health` is the service health check. The Chroma index is
+included in Git for Community Cloud but excluded from the Docker build context.
 For deployment, store a ZIP of `data/chroma_voyage` in a **private** Cloudflare
 R2 bucket; the service downloads it on startup and checks its SHA-256 hash.
 
@@ -131,10 +159,12 @@ R2 bucket; the service downloads it on startup and checks its SHA-256 hash.
    by the packaging script. Keep API keys and R2 credentials in Render's
    environment settings, never in Git.
 
-Render's free service may sleep when idle. After a restart it may need to
-download the index again; no scheduled pings are configured to keep it awake.
-Chat history is held in the Streamlit session and is not stored in Redis or a
-database.
+Add `VOYAGE_API_KEY`, `GEMINI_API_KEY`, and any configured
+`GEMINI_API_KEY1` through `GEMINI_API_KEY8` in Render's environment settings.
+Never put these keys in Angular or commit them. Render's free service may sleep
+when idle. After a restart it may need to download the index again; no scheduled
+pings are configured to keep it awake. Chat history is kept in browser session
+memory and is not stored in a database.
 
 ## How content was collected
 - URLs come from the site's `sitemap.xml` (1,643 URLs). We selected the

@@ -3,7 +3,7 @@ services:
     name: phoenix-rag-bot
     runtime: docker
     plan: free
-    healthCheckPath: /_stcore/health
+    healthCheckPath: /api/health
     envVars:
       - key: R2_ACCOUNT_ID
         sync: false
@@ -18,6 +18,22 @@ services:
       - key: R2_INDEX_SHA256
         sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY1
+        sync: false
+      - key: GEMINI_API_KEY2
+        sync: false
+      - key: GEMINI_API_KEY3
+        sync: false
+      - key: GEMINI_API_KEY4
+        sync: false
+      - key: GEMINI_API_KEY5
+        sync: false
+      - key: GEMINI_API_KEY6
+        sync: false
+      - key: GEMINI_API_KEY7
+        sync: false
+      - key: GEMINI_API_KEY8
         sync: false
       - key: VOYAGE_API_KEY
         sync: false
