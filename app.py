@@ -212,8 +212,7 @@ st.markdown(
         width: min(400px, calc(100vw - 32px));
         height: min(650px, calc(100vh - 124px));
         max-height: calc(100vh - 124px);
-        display: flex;
-        flex-direction: column;
+        display: block;
         overflow-x: hidden;
         overflow-y: hidden;
         overscroll-behavior: contain;
@@ -226,37 +225,61 @@ st.markdown(
         border-radius: 18px;
         box-shadow: 0 20px 70px rgba(12, 22, 45, 0.24);
     }}
-    .st-key-chat_panel > [data-testid="stVerticalBlockBorderWrapper"] {{
-        flex: 1 1 auto;
-        min-height: 0;
-    }}
-    .st-key-chat_panel > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"] {{
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        min-height: 0;
+    .st-key-chat_header {{
+        position: absolute;
+        top: 0;
+        left: 18px;
+        right: 18px;
+        z-index: 20;
+        padding: 13px 0 11px;
+        border-bottom: 1px solid #EDF0F4;
+        margin-bottom: 0;
+        background: white;
     }}
     .st-key-chat_panel [data-testid="stVerticalBlock"] {{
         gap: 0.55rem;
     }}
-    .st-key-chat_header {{
-        position: relative;
-        z-index: 20;
-        align-self: stretch;
-        flex: 0 0 auto;
-        padding: 13px 0 11px;
-        border-bottom: 1px solid #EDF0F4;
-        margin-bottom: 8px;
-        background: white;
-    }}
     .st-key-chat_body {{
-        flex: 1 1 auto;
-        min-height: 0;
+        position: absolute;
+        top: 108px;
+        right: 18px;
+        bottom: 90px;
+        left: 18px;
         overflow-x: hidden;
         overflow-y: auto;
         overscroll-behavior: contain;
         scrollbar-width: thin;
         scrollbar-color: #B8C1CF transparent;
+    }}
+    .st-key-chat_panel:has(.st-key-claim_guide_composer) .st-key-chat_body {{
+        bottom: 90px;
+    }}
+    .st-key-chat_composer,
+    .st-key-claim_guide_composer {{
+        position: absolute;
+        right: 18px;
+        bottom: 14px;
+        left: 18px;
+        z-index: 21;
+        padding-top: 8px;
+        border-top: 1px solid #EDF0F4;
+        background: white;
+    }}
+    .st-key-claim_guide_composer {{
+        right: 18px;
+        left: 18px;
+    }}
+    .st-key-claim_guide_composer [data-testid="stTextArea"],
+    .st-key-claim_guide_composer textarea {{
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_body [data-testid="stAlert"] {{
+        width: calc(100% - 12px);
+        max-width: calc(100% - 12px);
+        margin-inline: auto;
+        box-sizing: border-box;
     }}
     .st-key-chat_header .brand-line {{
         color: {PRIMARY};
@@ -370,13 +393,28 @@ st.markdown(
         background: #FFF0E8;
         transform: translateY(-1px);
     }}
+    .st-key-chat_mode {{
+        width: 100%;
+        max-width: 100%;
+        padding-inline: 8px;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_mode [data-testid="stSegmentedControl"] {{
+        width: max-content;
+        max-width: 100%;
+        margin-inline: auto;
+    }}
     .st-key-chat_mode button {{
-        min-height: 34px;
+        min-width: 66px;
+        min-height: 36px;
         padding: 0.3rem 0.7rem;
+        white-space: nowrap;
         font-size: 0.84rem;
     }}
     .st-key-close_chat button p,
-    .st-key-minimize_chat button p {{
+    .st-key-minimize_chat button p,
+    .st-key-send_chat button p,
+    .st-key-submit_claim_guide_question button p {{
         position: absolute;
         width: 1px;
         height: 1px;
@@ -386,14 +424,6 @@ st.markdown(
         clip: rect(0, 0, 0, 0);
         white-space: nowrap;
         border: 0;
-    }}
-    .st-key-chat_composer {{
-        position: sticky;
-        bottom: 0;
-        z-index: 3;
-        padding: 10px 0 2px;
-        border-top: 1px solid #E7ECF3;
-        background: white;
     }}
     .st-key-chat_messages {{
         padding: 4px 2px;
@@ -423,20 +453,28 @@ st.markdown(
         border-radius: 11px;
         min-height: 44px;
     }}
-    .st-key-chat_send button {{
+    .st-key-send_chat button,
+    .st-key-submit_claim_guide_question button {{
+        width: 44px;
+        min-width: 44px;
         min-height: 44px;
-        border-radius: 11px;
+        padding: 0;
+        border-radius: 12px;
         background: {PRIMARY};
         border-color: {PRIMARY};
         color: white;
         font-weight: 700;
     }}
-    .st-key-chat_send button:hover {{
+    .st-key-send_chat button:hover,
+    .st-key-submit_claim_guide_question button:hover {{
         background: #E64D19;
         border-color: #E64D19;
         color: white;
     }}
     .st-key-chat_suggestions button {{
+        width: calc(100% - 10px);
+        max-width: 100%;
+        margin-inline: auto;
         min-height: 36px;
         border-radius: 10px;
         text-align: right;
@@ -978,27 +1016,6 @@ else:
                                     args=(example,),
                                 )
 
-                    with st.container(key="chat_composer"):
-                        input_column, send_column = st.columns(
-                            [5, 1], vertical_alignment="bottom"
-                        )
-                        with input_column:
-                            st.text_input(
-                                "השאלה שלך",
-                                placeholder="כתבו שאלה על ביטוח או תביעה...",
-                                label_visibility="collapsed",
-                                key="chat_question",
-                                on_change=_queue_question,
-                            )
-                        with send_column:
-                            st.button(
-                                "שליחה",
-                                key="send_chat",
-                                icon=":material/arrow_upward:",
-                                width="stretch",
-                                disabled=busy,
-                                on_click=_queue_question,
-                            )
                 else:
                     with st.container(key="claim_guide_chat"):
                         st.markdown("### היי, אני המלווה של הפניקס")
@@ -1087,26 +1104,54 @@ else:
                             if "claim_guide_error" in st.session_state:
                                 st.error(st.session_state.claim_guide_error)
 
-                            guide_request_pending = bool(
-                                st.session_state.get("pending_claim_guide_question")
-                            ) or st.session_state.claim_guide_future is not None
-                            st.text_area(
-                                "מה קרה או מה תרצי לשאול?",
-                                placeholder=(
-                                    "לדוגמה: הייתה נזילה בדירה, איזה מידע "
-                                    "כדאי לבדוק לפני הגשת תביעה?"
-                                ),
-                                key="claim_guide_question",
-                            )
-                            st.button(
-                                "שליחה למלווה",
-                                key="submit_claim_guide_question",
-                                type="primary",
-                                disabled=guide_request_pending,
-                                on_click=_submit_claim_guide_question,
-                            )
+            if chat_mode == "שאלות":
+                with st.container(key="chat_composer"):
+                    input_column, send_column = st.columns(
+                        [4.5, 1.5], vertical_alignment="bottom"
+                    )
+                    with input_column:
+                        st.text_input(
+                            "השאלה שלך",
+                            placeholder="כתבו שאלה על ביטוח או תביעה...",
+                            label_visibility="collapsed",
+                            key="chat_question",
+                            on_change=_queue_question,
+                        )
+                    with send_column:
+                        st.button(
+                            "שליחה",
+                            key="send_chat",
+                            icon=":material/arrow_upward:",
+                            width="content",
+                            disabled=busy,
+                            on_click=_queue_question,
+                        )
+            elif st.session_state.get("claim_guide_selected") in CLAIM_GUIDES:
+                with st.container(key="claim_guide_composer"):
+                    guide_request_pending = bool(
+                        st.session_state.get("pending_claim_guide_question")
+                    ) or st.session_state.claim_guide_future is not None
+                    guide_input_column, guide_send_column = st.columns(
+                        [4.5, 1.5], vertical_alignment="bottom"
+                    )
+                    with guide_input_column:
+                        st.text_input(
+                            "מה קרה או מה תרצי לשאול?",
+                            placeholder="כתבי בקצרה מה קרה או מה תרצי לברר...",
+                            label_visibility="collapsed",
+                            key="claim_guide_question",
+                        )
+                    with guide_send_column:
+                        st.button(
+                            "שליחה למלווה",
+                            key="submit_claim_guide_question",
+                            icon=":material/arrow_upward:",
+                            width="content",
+                            disabled=guide_request_pending,
+                            on_click=_submit_claim_guide_question,
+                        )
 
-                if st.session_state.pop("scroll_after_chat_update", False):
+            if st.session_state.pop("scroll_after_chat_update", False):
                     st.html(
                         """
                         <script>
