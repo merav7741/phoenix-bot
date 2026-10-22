@@ -126,11 +126,13 @@ In the Community Cloud app settings, add `GEMINI_API_KEY` and `VOYAGE_API_KEY`
 as Streamlit secrets. Do not commit API keys or `.streamlit/secrets.toml`.
 For service continuity, you may also configure up to eight additional Gemini
 keys as `GEMINI_API_KEY1` through `GEMINI_API_KEY8` (or with an underscore
-before the number). The app tries the next configured key only when Gemini
-identifies an invalid key (`API_KEY_INVALID`) or returns 401. A quota or
-rate-limit response (429) is reported as-is and does not trigger key switching; separate keys do
-not combine quotas or provide a way around Google AI Studio limits. Use keys
-only for projects and accounts you are authorized to administer.
+before the number). The app skips unset or duplicate keys and tries configured
+keys in order. It advances to the next key when Gemini reports an invalid key
+(`API_KEY_INVALID` or 401) or a quota/rate-limit response (429); other API
+errors are returned without trying another key. This is failover between keys
+you are authorized to use, not a way to evade Google AI Studio limits. The key
+list is cached for the lifetime of the app process, so restart or redeploy the
+service after changing environment variables.
 
 The floating chat has two modes: **Questions** uses the RAG answer flow, while
 **Guidance** starts a conversational pre-claim flow: it asks for an insurance

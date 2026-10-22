@@ -475,6 +475,11 @@ st.markdown(
         padding: 4px 2px;
     }}
     .st-key-chat_panel [data-testid="stChatMessage"] {{
+        direction: rtl;
+        text-align: right;
+        justify-content: flex-start;
+        width: 100%;
+        box-sizing: border-box;
         padding: 10px 12px;
         margin: 5px 0;
         border: 1px solid #E7EAF0;
@@ -490,9 +495,19 @@ st.markdown(
         border-color: #DCE6F3;
     }}
     .st-key-chat_panel [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {{
+        direction: rtl;
+        text-align: right;
         color: #26324A;
         font-size: 0.88rem;
         line-height: 1.65;
+    }}
+    .st-key-chat_panel [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] :is(p, ul, ol, li) {{
+        direction: rtl;
+        text-align: right;
+    }}
+    .st-key-chat_panel [data-testid="stChatMessage"] [data-testid="stLinkButton"] {{
+        direction: rtl;
+        text-align: right;
     }}
     .st-key-chat_panel [data-testid="stTextInput"] input {{
         direction: rtl;
@@ -690,33 +705,10 @@ def _queue_question(question=None):
 
 
 def _close_chat():
-    future = st.session_state.get("answer_future")
-    if future is not None:
-        future.cancel()
-    st.session_state.messages = []
+    # Closing the widget only hides it. Keep the visible transcript and any
+    # in-flight request so reopening the chat restores the conversation.
     st.session_state.chat_open = False
     st.session_state.chat_minimized = False
-    st.session_state.chat_question = ""
-    st.session_state.answer_future = None
-    st.session_state.answer_progress_queue = None
-    st.session_state.answer_progress = "מחפשת מידע ובודקת את המקורות..."
-    claim_guide_future = st.session_state.get("claim_guide_future")
-    if claim_guide_future is not None:
-        claim_guide_future.cancel()
-    st.session_state.claim_guide_future = None
-    st.session_state.claim_guide_progress_queue = None
-    st.session_state.claim_guide_progress = "מחפשת מידע מתאים במקורות..."
-    st.session_state.pending_claim_guide_question = ""
-    st.session_state.chat_notice_visible = True
-    st.session_state.chat_mode = "שאלות"
-    st.session_state.pop("claim_guide_selected", None)
-    st.session_state.pop("claim_guide_type", None)
-    st.session_state.pop("claim_guide_messages", None)
-    st.session_state.pop("claim_guide_question", None)
-    st.session_state.pop("claim_guide_error", None)
-    st.session_state.pop("pending_question", None)
-    st.session_state.pop("chat_error", None)
-    st.session_state.pop("scroll_after_chat_update", None)
 
 
 def _minimize_chat():
@@ -827,7 +819,23 @@ else:
                 try:
                     result = future.result()
                 except RAGError as error:
-                    st.session_state.chat_error = str(error)
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": str(error),
+                            "sources": [],
+                            "error": True,
+                        }
+                    )
+                except Exception:
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": "הבקשה לא הושלמה בגלל שגיאה זמנית. אפשר לנסות שוב.",
+                            "sources": [],
+                            "error": True,
+                        }
+                    )
                 else:
                     st.session_state.messages.append(
                         {
@@ -912,7 +920,11 @@ else:
             st.session_state.answer_future = _answer_executor().submit(
                 _run_answer,
                 pending_question,
-                list(st.session_state.messages),
+                [
+                    message
+                    for message in st.session_state.messages
+                    if not message.get("error")
+                ],
                 progress_queue,
             )
             st.session_state.scroll_after_chat_update = True
