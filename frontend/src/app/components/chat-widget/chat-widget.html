@@ -142,16 +142,19 @@
             <article class="message-row user-row">
               <div class="message-bubble user-bubble"><p>{{ turn.question }}</p></div>
             </article>
-            @if (turn.chunks.length) {
+            @if (turn.answer) {
               <div class="guide-result">
-                <p class="guide-result-heading">מצאתי מידע שעשוי לעזור:</p>
-                @for (chunk of turn.chunks; track chunk.url + chunk.title) {
+                <p class="guide-answer">{{ turn.answer }}</p>
+                @if (turn.sources.length) {
+                  <p class="guide-result-heading">מקורות רשמיים לעיון:</p>
+                }
+                @for (source of turn.sources; track source.url) {
                   <article class="guide-source-card">
-                    <h4>{{ chunk.title }}</h4>
-                    <p>{{ chunk.text }}</p>
-                    <a [href]="chunk.url" target="_blank" rel="noopener noreferrer">לקריאת המקור המלא <span aria-hidden="true">↗</span></a>
+                    <h4>{{ source.title }}</h4>
+                    <a [href]="source.url" target="_blank" rel="noopener noreferrer">לקריאת המקור המלא <span aria-hidden="true">↗</span></a>
                   </article>
                 }
+                <p class="guide-disclaimer">המידע כללי ואינו קובע אם תביעה תאושר.</p>
               </div>
             } @else if (!busy) {
               <div class="guide-empty">

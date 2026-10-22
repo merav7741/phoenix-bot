@@ -628,9 +628,9 @@ def _submit_claim_guide_question():
         return
 
     try:
-        from server.rag import get_claim_guide
+        from server.rag import get_claim_guide_answer
 
-        chunks = get_claim_guide(source_url, question=question)
+        result = get_claim_guide_answer(source_url, question=question)
     except ImportError:
         st.session_state.claim_guide_error = (
             "רכיב הליווי לא זמין בגרסה הנוכחית. רענני את האפליקציה, "
@@ -640,7 +640,11 @@ def _submit_claim_guide_question():
         st.session_state.claim_guide_error = str(error)
     else:
         st.session_state.claim_guide_messages.append(
-            {"question": question, "sources": chunks}
+            {
+                "question": question,
+                "answer": result["answer"],
+                "sources": result["sources"],
+            }
         )
         st.session_state.pop("claim_guide_error", None)
     st.session_state.claim_guide_question = ""
@@ -913,34 +917,21 @@ else:
                             with st.chat_message("user"):
                                 st.markdown(turn["question"])
                             with st.chat_message("assistant"):
-                                if turn["sources"]:
-                                    st.markdown(
-                                        "מצאתי קטעים רלוונטיים ממידע רשמי "
-                                        "של הפניקס. הנה המקורות לעיון:"
-                                    )
-                                    for index, chunk in enumerate(
+                                if turn.get("answer"):
+                                    st.markdown(turn["answer"])
+                                    for index, source in enumerate(
                                         turn["sources"], 1
                                     ):
-                                        st.markdown(f"**קטע {index}:**")
-                                        st.markdown(chunk["text"])
-                                        if chunk["crawled_at"]:
-                                            st.caption(
-                                                "המידע נאסף מהאתר בתאריך "
-                                                f"{chunk['crawled_at']}."
-                                            )
                                         st.link_button(
                                             f"פתיחת המקור הרשמי {index}",
-                                            chunk["url"],
+                                            source["url"],
                                             icon=":material/open_in_new:",
                                             key=(
                                                 "claim_guide_source_"
                                                 f"{turn_index}_{index}"
                                             ),
                                         )
-                                    st.caption(
-                                        "אפשר להמשיך לשאול על אותו תחום. "
-                                        "המידע כללי ואינו קובע אם תביעה תאושר."
-                                    )
+                                    st.caption("המידע כללי ואינו קובע אם תביעה תאושר.")
                                 else:
                                     st.warning(
                                         "לא מצאתי קטע מתאים במקורות שאונדקסו "

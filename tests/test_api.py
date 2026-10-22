@@ -95,7 +95,7 @@ class ApiTests(unittest.TestCase):
         )
 
     def test_unknown_guide_option_is_rejected_without_retrieval(self):
-        with patch("server.api.get_claim_guide") as get_claim_guide:
+        with patch("server.api.get_claim_guide_answer") as get_claim_guide_answer:
             response = self.client.post(
                 "/api/claim-guide",
                 json={
@@ -105,30 +105,31 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 422)
-        get_claim_guide.assert_not_called()
+        get_claim_guide_answer.assert_not_called()
 
     def test_claim_guide_uses_only_the_selected_catalog_url(self):
-        expected = [
-            {
-                "title": "תביעת דירה",
-                "url": "https://www.fnx.co.il/claims-customer-service/claims-appartment-insurance/",
-                "text": "קטע מהמקור",
-                "crawled_at": "2026-10-18",
-            }
-        ]
+        expected = {
+            "answer": "כדאי להתחיל באיסוף המסמכים שמופיעים בעמוד.",
+            "sources": [
+                {
+                    "title": "תביעת דירה",
+                    "url": "https://www.fnx.co.il/claims-customer-service/claims-appartment-insurance/",
+                }
+            ],
+        }
         with patch(
-            "server.api.get_claim_guide",
+            "server.api.get_claim_guide_answer",
             return_value=expected,
-        ) as get_claim_guide:
+        ) as get_claim_guide_answer:
             response = self.client.post(
                 "/api/claim-guide",
                 json={"insurance_type": "דירה", "question": "מה לצרף?"},
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"chunks": expected})
+        self.assertEqual(response.json(), expected)
         self.assertEqual(
-            get_claim_guide.call_args.args[0],
+            get_claim_guide_answer.call_args.args[0],
             "https://www.fnx.co.il/claims-customer-service/claims-appartment-insurance/",
         )
 

@@ -11,13 +11,14 @@ import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChatApi,
   ChatMessage,
-  GuideChunk,
+  GuideSource,
   GuideOption,
 } from '../../services/chat-api';
 
 interface GuideTurn {
   question: string;
-  chunks: GuideChunk[];
+  answer: string;
+  sources: GuideSource[];
 }
 
 type ChatMode = 'questions' | 'guide';
@@ -147,18 +148,18 @@ export class ChatWidgetComponent implements OnInit, AfterViewChecked {
     const question = this.guideDraft.trim();
     if (!this.insuranceType || !question || this.busy) return;
 
-    this.guideTurns = [...this.guideTurns, { question, chunks: [] }];
+    this.guideTurns = [...this.guideTurns, { question, answer: '', sources: [] }];
     this.guideDraft = '';
     this.error = '';
     this.busy = true;
     this.shouldScroll = true;
 
     this.chatApi.getGuidance(this.insuranceType, question).subscribe({
-      next: ({ chunks }) => {
+      next: ({ answer, sources }) => {
         const lastTurn = this.guideTurns[this.guideTurns.length - 1];
         this.guideTurns = [
           ...this.guideTurns.slice(0, -1),
-          { ...lastTurn, chunks },
+          { ...lastTurn, answer, sources },
         ];
         this.finishRequest();
       },

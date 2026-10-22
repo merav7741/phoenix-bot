@@ -17,11 +17,9 @@ export interface GuideOption {
   name: string;
 }
 
-export interface GuideChunk {
+export interface GuideSource {
   title: string;
   url: string;
-  text: string;
-  crawled_at: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -45,8 +43,8 @@ export class ChatApi {
   getGuidance(
     insuranceType: string,
     question: string,
-  ): Observable<{ chunks: GuideChunk[] }> {
-    return this.http.post<{ chunks: GuideChunk[] }>('/api/claim-guide', {
+  ): Observable<{ answer: string; sources: GuideSource[] }> {
+    return this.http.post<{ answer: string; sources: GuideSource[] }>('/api/claim-guide', {
       insurance_type: insuranceType,
       question,
     });

@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
 from server.guide_catalog import CLAIM_GUIDES
-from server.rag import RAGError, get_answer, get_claim_guide
+from server.rag import RAGError, get_answer, get_claim_guide_answer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist" / "frontend" / "browser"
@@ -85,9 +85,7 @@ def claim_guide(request: GuideRequest):
     if source_url is None:
         raise HTTPException(status_code=422, detail="בחרי תחום ביטוח מהרשימה.")
     try:
-        return {
-            "chunks": get_claim_guide(source_url, question=request.question),
-        }
+        return get_claim_guide_answer(source_url, question=request.question)
     except RAGError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
