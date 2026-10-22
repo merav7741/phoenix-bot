@@ -55,6 +55,32 @@ OUT_OF_SCOPE = (
 )
 
 
+# Fallback models do not always follow the JSON shape described in the
+# prompt, so the answer and verification calls also enforce it with a schema.
+ANSWER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "status": {
+            "type": "string",
+            "enum": ["answer", "not_found", "personal", "out_of_scope"],
+        },
+        "answer": {"type": "string"},
+        "source_ids": {"type": "array", "items": {"type": "integer"}},
+    },
+    "required": ["status"],
+}
+VERIFICATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {
+            "type": "string",
+            "enum": ["supported", "personal", "out_of_scope", "not_found"],
+        },
+    },
+    "required": ["verdict"],
+}
+
+
 class RAGError(RuntimeError):
     """An actionable error while retrieving or generating an answer."""
 
@@ -642,6 +668,7 @@ def _verify_answer(question, answer, cited_candidates, gemini_client):
             config=types.GenerateContentConfig(
                 system_instruction=verification_instruction,
                 response_mime_type="application/json",
+                response_json_schema=VERIFICATION_SCHEMA,
                 temperature=0,
             ),
         )
@@ -919,6 +946,7 @@ def _get_answer_uncached(question, history=None, on_progress=None):
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 response_mime_type="application/json",
+                response_json_schema=ANSWER_SCHEMA,
                 temperature=0.1,
             ),
         )
