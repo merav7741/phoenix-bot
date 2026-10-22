@@ -1,5 +1,6 @@
 import {
   AfterViewChecked,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   OnInit,
@@ -31,6 +32,8 @@ type ChatMode = 'questions' | 'guide';
 })
 export class ChatWidgetComponent implements OnInit, AfterViewChecked {
   private readonly chatApi = inject(ChatApi);
+  // The app is zoneless, so HTTP callbacks must request a view update.
+  private readonly changeDetector = inject(ChangeDetectorRef);
   private shouldScroll = false;
 
   @ViewChild('messageList') private messageList?: ElementRef<HTMLElement>;
@@ -60,10 +63,12 @@ export class ChatWidgetComponent implements OnInit, AfterViewChecked {
       next: (options) => {
         this.guideOptions = options;
         this.hasLoadedGuideOptions = true;
+        this.changeDetector.markForCheck();
       },
       error: () => {
         this.hasLoadedGuideOptions = true;
         this.error = 'לא ניתן לטעון כרגע את תחומי הביטוח. נסי לרענן את הדף.';
+        this.changeDetector.markForCheck();
       },
     });
   }
@@ -188,6 +193,7 @@ export class ChatWidgetComponent implements OnInit, AfterViewChecked {
   private finishRequest(): void {
     this.busy = false;
     this.shouldScroll = true;
+    this.changeDetector.markForCheck();
   }
 
   private readError(error: HttpErrorResponse): string {
