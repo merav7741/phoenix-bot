@@ -3,8 +3,12 @@ import os
 import re
 import shutil
 import tempfile
+import time
+from collections import OrderedDict
+from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
+from threading import RLock
 from urllib.parse import urlparse
 
 import chromadb
@@ -23,6 +27,10 @@ RESULTS_COUNT = 5
 # Provisional cosine-distance cutoff; calibrate it against the evaluation set.
 MAX_COSINE_DISTANCE = 0.55
 MAX_HISTORY_MESSAGES = 12
+ANSWER_CACHE_TTL_SECONDS = 60 * 60
+ANSWER_CACHE_MAX_ENTRIES = 128
+_answer_cache = OrderedDict()
+_answer_cache_lock = RLock()
 
 NOT_FOUND = (
     "לא מצאתי באתר הפניקס מידע מאומת שעונה על השאלה הזו, ולכן אני לא רוצה "
@@ -651,7 +659,68 @@ def _retrieve_candidates(search_question, voyage_client, collection, collection_
     return candidates
 
 
+def _answer_cache_version():
+    try:
+        index_stat = (DB_DIR / "chroma.sqlite3").stat()
+        index_version = (index_stat.st_mtime_ns, index_stat.st_size)
+    except OSError:
+        index_version = None
+    return (
+        index_version,
+        ANSWER_MODEL,
+        EMBEDDING_MODEL,
+        MAX_COSINE_DISTANCE,
+    )
+
+
+def _get_cached_standalone_answer(question, on_progress=None):
+    normalized_question = " ".join(question.split())
+    cache_key = (normalized_question.casefold(), _answer_cache_version())
+    now = time.monotonic()
+
+    with _answer_cache_lock:
+        cached = _answer_cache.get(cache_key)
+        if cached is not None:
+            expires_at, result = cached
+            if expires_at > now:
+                _answer_cache.move_to_end(cache_key)
+                if on_progress:
+                    on_progress("מציגה תשובה מאומתת שנשמרה לשאלה הזאת...")
+                return deepcopy(result)
+            del _answer_cache[cache_key]
+
+    result = _get_answer_uncached(
+        normalized_question,
+        history=None,
+        on_progress=on_progress,
+    )
+    # Cache only complete answers backed by official sources. Do not cache
+    # clarifications, errors, personal/out-of-scope replies, or not-found results.
+    if result.get("sources"):
+        with _answer_cache_lock:
+            _answer_cache[cache_key] = (
+                time.monotonic() + ANSWER_CACHE_TTL_SECONDS,
+                deepcopy(result),
+            )
+            _answer_cache.move_to_end(cache_key)
+            while len(_answer_cache) > ANSWER_CACHE_MAX_ENTRIES:
+                _answer_cache.popitem(last=False)
+    return result
+
+
 def get_answer(question, history=None, on_progress=None):
+    question = " ".join((question or "").split())
+    prior_messages = [
+        message
+        for message in (history or [])[:-1]
+        if message.get("role") in ("user", "assistant")
+    ]
+    if not prior_messages:
+        return _get_cached_standalone_answer(question, on_progress=on_progress)
+    return _get_answer_uncached(question, history=history, on_progress=on_progress)
+
+
+def _get_answer_uncached(question, history=None, on_progress=None):
     question = question.strip()
     if not question:
         raise RAGError("צריך לכתוב שאלה לפני השליחה.")

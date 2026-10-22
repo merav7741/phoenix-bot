@@ -111,6 +111,25 @@ python ingest/chunk.py
 python ingest/index.py
 ```
 
+### Add pages supplied separately
+
+Place each verified Phoenix page JSON in `data/pages/` with the fields
+`url`, `title`, `text`, and `crawled_at`. Keep the article body and its policy
+disclaimers; remove navigation cards, unrelated recommended articles, and
+editorial notes copied into the text. Then rebuild and index:
+
+```powershell
+python ingest/chunk.py
+python ingest/index.py
+```
+
+`data/pages/` and `data/chunks.jsonl` are ignored by Git. The resulting
+`data/chroma_voyage/` index is tracked and must be included in the commit for
+the new pages to reach a deployment. Indexing requires `VOYAGE_API_KEY`; the
+script skips chunk IDs already present, so it can resume after an interruption.
+The current local corpus contains 709 page files and generates 4,216 chunks;
+chunks shorter than the indexer's 150-character minimum are skipped.
+
 ## Deploying to Streamlit Community Cloud
 
 The Community Cloud app continues to use the legacy Streamlit entry point
