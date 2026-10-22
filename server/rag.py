@@ -455,7 +455,36 @@ def get_claim_guide_answer(url, question, on_progress=None):
     except genai.errors.APIError as exc:
         raise RAGError(_gemini_api_error_message(exc)) from exc
 
-    result = _parse_answer(response.text, candidates)
+    try:
+        result = _parse_answer(response.text, candidates)
+    except RAGError:
+        # Gemini can occasionally return a malformed response despite JSON mode.
+        # Retry once with an explicit format correction; source IDs are still
+        # validated against the retrieved candidates by _parse_answer.
+        if on_progress:
+            on_progress("׳׳×׳§׳ ׳× ׳׳× ׳₪׳•׳¨׳׳˜ ׳”׳×׳©׳•׳‘׳” ׳•׳‘׳•׳“׳§׳× ׳©׳•׳‘...")
+        try:
+            response = gemini_client.models.generate_content(
+                model=ANSWER_MODEL,
+                contents=(
+                    f"{prompt}\n\n"
+                    "התגובה הקודמת לא הייתה במבנה JSON תקין. החזר תשובה חדשה "
+                    "לפי ההוראות, כ-JSON בלבד, עם status, answer ו-source_ids. "
+                    "השתמש רק במזהי המקורות שסופקו."
+                ),
+                config=types.GenerateContentConfig(
+                    system_instruction=instruction,
+                    response_mime_type="application/json",
+                    temperature=0,
+                ),
+            )
+            result = _parse_answer(response.text, candidates)
+        except genai.errors.APIError as exc:
+            raise RAGError(_gemini_api_error_message(exc)) from exc
+        except RAGError as retry_error:
+            raise RAGError(
+                "מצאתי מקורות, אבל לא הצלחתי לאמת תשובה תקינה. נסי לשלוח שוב."
+            ) from retry_error
     source_ids = result.pop("source_ids", None)
     if not source_ids:
         return result

@@ -640,7 +640,10 @@ def _start_claim_guide():
 
 
 def _submit_claim_guide_question():
-    if st.session_state.get("claim_guide_future") is not None:
+    if (
+        st.session_state.get("claim_guide_future") is not None
+        or st.session_state.get("pending_claim_guide_question")
+    ):
         return
     question = st.session_state.get("claim_guide_question", "").strip()
     selected_type = st.session_state.get("claim_guide_selected")
@@ -1044,6 +1047,9 @@ else:
                             st.error(st.session_state.claim_guide_error)
 
                         with st.form("claim_guide_question_form"):
+                            guide_request_pending = bool(
+                                st.session_state.get("pending_claim_guide_question")
+                            ) or st.session_state.claim_guide_future is not None
                             st.text_area(
                                 "מה קרה או מה תרצי לשאול?",
                                 placeholder=(
@@ -1051,13 +1057,13 @@ else:
                                     "כדאי לבדוק לפני הגשת תביעה?"
                                 ),
                                 key="claim_guide_question",
-                                disabled=st.session_state.claim_guide_future is not None,
+                                disabled=guide_request_pending,
                             )
                             st.form_submit_button(
                                 "שליחה למלווה",
                                 key="submit_claim_guide_question",
                                 type="primary",
-                                disabled=st.session_state.claim_guide_future is not None,
+                                disabled=guide_request_pending,
                                 on_click=_submit_claim_guide_question,
                             )
 
