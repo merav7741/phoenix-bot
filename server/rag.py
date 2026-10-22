@@ -56,21 +56,33 @@ class RAGError(RuntimeError):
 class _GeminiFailoverModels:
     def __init__(self, clients):
         self._clients = clients
+        self._last_working = None
 
     def generate_content(self, *, model, **kwargs):
         # Keys fail independently (quota, revoked key, no access to a model,
         # overload), so any API error moves on to the next key, and then to
-        # the fallback models. Only the last error is raised.
+        # the fallback models. Only the last error is raised. The last
+        # working (model, key) pair is tried first to skip known failures.
         models = list(dict.fromkeys((model, *FALLBACK_ANSWER_MODELS)))
+        attempts = [
+            (candidate_model, index)
+            for candidate_model in models
+            for index in range(len(self._clients))
+        ]
+        if self._last_working in attempts:
+            attempts.remove(self._last_working)
+            attempts.insert(0, self._last_working)
         last_error = None
-        for candidate_model in models:
-            for client in self._clients:
-                try:
-                    return client.models.generate_content(
-                        model=candidate_model, **kwargs
-                    )
-                except genai.errors.APIError as exc:
-                    last_error = exc
+        for candidate_model, index in attempts:
+            try:
+                response = self._clients[index].models.generate_content(
+                    model=candidate_model, **kwargs
+                )
+            except genai.errors.APIError as exc:
+                last_error = exc
+                continue
+            self._last_working = (candidate_model, index)
+            return response
         raise last_error
 
 

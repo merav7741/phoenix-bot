@@ -275,6 +275,24 @@ class GeminiApiFailureTests(unittest.TestCase):
             model=rag.ANSWER_MODEL, contents="test"
         )
 
+    def test_next_call_starts_from_last_working_key(self):
+        quota = rag.genai.errors.APIError(
+            429,
+            {"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota"}},
+        )
+        first_client = Mock()
+        first_client.models.generate_content.side_effect = quota
+        second_client = Mock()
+        failover_client = rag._GeminiFailoverClient(
+            [first_client, second_client]
+        )
+
+        failover_client.models.generate_content(model=rag.ANSWER_MODEL, contents="1")
+        failover_client.models.generate_content(model=rag.ANSWER_MODEL, contents="2")
+
+        first_client.models.generate_content.assert_called_once()
+        self.assertEqual(second_client.models.generate_content.call_count, 2)
+
     def test_all_keys_failing_tries_fallback_model_then_raises_last_error(self):
         unavailable = rag.genai.errors.APIError(
             503,
