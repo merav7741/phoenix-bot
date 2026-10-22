@@ -254,6 +254,25 @@ st.markdown(
         font-size: 0.79rem;
         margin: 3px 0 0;
     }}
+    .st-key-chat_header > [data-testid="stHorizontalBlock"] {{
+        align-items: center;
+        gap: 6px;
+    }}
+    .st-key-chat_header > [data-testid="stHorizontalBlock"] > [data-testid="column"]:has(.st-key-close_chat),
+    .st-key-chat_header > [data-testid="stHorizontalBlock"] > [data-testid="column"]:has(.st-key-minimize_chat) {{
+        flex: 0 0 42px !important;
+        width: 42px !important;
+        min-width: 42px !important;
+        padding: 3px;
+        border: 1px solid #F7B28F;
+        border-radius: 12px;
+        background: #FFF3EC;
+        box-sizing: border-box;
+    }}
+    .st-key-chat_header > [data-testid="stHorizontalBlock"] > [data-testid="column"]:has(.st-key-close_chat) > div,
+    .st-key-chat_header > [data-testid="stHorizontalBlock"] > [data-testid="column"]:has(.st-key-minimize_chat) > div {{
+        width: 100%;
+    }}
     .st-key-chat_notice {{
         margin: 10px 0 12px;
         padding: 10px 12px;
@@ -314,12 +333,18 @@ st.markdown(
     .st-key-close_chat button,
     .st-key-minimize_chat button {{
         min-height: 36px;
-        width: 36px;
+        width: 100%;
         padding: 0;
-        border: 1px solid #E5E8EF;
-        border-radius: 50%;
-        color: #5C6678;
-        background: white;
+        border: 0;
+        border-radius: 8px;
+        color: #9A451F;
+        background: transparent;
+    }}
+    .st-key-close_chat button:hover,
+    .st-key-minimize_chat button:hover {{
+        border: 0;
+        color: #7C3215;
+        background: #FFE3D4;
     }}
     .st-key-chat_mode button {{
         min-height: 34px;
@@ -570,6 +595,9 @@ def _close_chat():
     st.session_state.chat_mode = "שאלות"
     st.session_state.pop("claim_guide_selected", None)
     st.session_state.pop("claim_guide_type", None)
+    st.session_state.pop("claim_guide_messages", None)
+    st.session_state.pop("claim_guide_question", None)
+    st.session_state.pop("claim_guide_error", None)
     st.session_state.pop("pending_question", None)
     st.session_state.pop("chat_error", None)
     st.session_state.pop("scroll_after_chat_update", None)
@@ -587,6 +615,56 @@ def _restore_chat():
 
 def _dismiss_chat_notice():
     st.session_state.chat_notice_visible = False
+
+
+def _start_claim_guide():
+    selected_type = st.session_state.get("claim_guide_type")
+    if selected_type not in CLAIM_GUIDES:
+        st.session_state.claim_guide_error = "בחרי תחום ביטוח מהרשימה."
+        return
+    st.session_state.claim_guide_selected = selected_type
+    st.session_state.claim_guide_messages = []
+    st.session_state.claim_guide_question = ""
+    st.session_state.pop("claim_guide_error", None)
+
+
+def _submit_claim_guide_question():
+    question = st.session_state.get("claim_guide_question", "").strip()
+    selected_type = st.session_state.get("claim_guide_selected")
+    source_url = CLAIM_GUIDES.get(selected_type)
+    if not source_url:
+        st.session_state.claim_guide_error = (
+            "בחרי תחום ביטוח לפני שממשיכים."
+        )
+        return
+    if not question:
+        st.session_state.claim_guide_error = "כתבי מה קרה או מה תרצי לברר."
+        return
+
+    try:
+        from rag import get_claim_guide
+
+        chunks = get_claim_guide(source_url, question=question)
+    except ImportError:
+        st.session_state.claim_guide_error = (
+            "רכיב הליווי לא זמין בגרסה הנוכחית. רענני את האפליקציה, "
+            "ואם ההודעה נשארת יש לעדכן את קובצי הפרויקט יחד."
+        )
+    except RAGError as error:
+        st.session_state.claim_guide_error = str(error)
+    else:
+        st.session_state.claim_guide_messages.append(
+            {"question": question, "sources": chunks}
+        )
+        st.session_state.pop("claim_guide_error", None)
+    st.session_state.claim_guide_question = ""
+
+
+def _change_claim_guide_type():
+    st.session_state.claim_guide_selected = None
+    st.session_state.claim_guide_messages = []
+    st.session_state.claim_guide_question = ""
+    st.session_state.pop("claim_guide_error", None)
 
 
 EXAMPLES = [
@@ -801,77 +879,111 @@ else:
                             on_click=_queue_question,
                         )
             else:
-                st.markdown("### מלווה לפני הגשת תביעה")
-                st.caption(
-                    "בחרי תחום כדי לראות מידע רשמי שיעזור לך להתכונן. "
-                    "המלווה אינו בודק זכאות ואינו מבקש פרטים אישיים."
-                )
-                with st.form("claim_guide_form"):
-                    claim_guide_type = st.selectbox(
-                        "סוג הביטוח",
-                        list(CLAIM_GUIDES),
-                        key="claim_guide_type",
-                    )
-                    show_claim_guide = st.form_submit_button(
-                        "הצגת המידע הרשמי",
-                        key="show_claim_guide",
-                        type="primary",
+                with st.container(key="claim_guide_chat"):
+                    st.markdown("### היי, אני המלווה של הפניקס")
+                    st.caption(
+                        "אלווה אותך במידע ציבורי לפני הגשת תביעה. "
+                        "אני לא בודק זכאות ולא מחליף את הנחיות הפניקס."
                     )
 
-                if show_claim_guide:
-                    st.session_state.claim_guide_selected = claim_guide_type
-
-                selected_claim_guide = st.session_state.get(
-                    "claim_guide_selected"
-                )
-                claim_guide_url = CLAIM_GUIDES.get(selected_claim_guide)
-                if selected_claim_guide and not claim_guide_url:
-                    st.error("בחירת התחום אינה תקינה. בחרי תחום מהרשימה.")
-                elif claim_guide_url:
-                    st.markdown(f"#### מידע לפני תביעה: {selected_claim_guide}")
-                    st.info(
-                        "המידע נשלף ממקור ציבורי של הפניקס. בדקי את ההנחיות "
-                        "העדכניות בעמוד הרשמי לפני שליחת תביעה."
+                    selected_claim_guide = st.session_state.get(
+                        "claim_guide_selected"
                     )
-                    try:
-                        from rag import get_claim_guide
-
-                        claim_guide_chunks = get_claim_guide(claim_guide_url)
-                    except ImportError:
-                        st.error(
-                            "רכיב הליווי לא נטען בגרסה הזו. רענני את האפליקציה; "
-                            "אם ההודעה נשארת, יש לעדכן את קובצי הפרויקט יחד."
+                    if selected_claim_guide not in CLAIM_GUIDES:
+                        st.markdown(
+                            "**באיזה סוג ביטוח תרצי שאלווה אותך?**"
                         )
-                    except RAGError as error:
-                        st.error(str(error))
+                        with st.form("claim_guide_start_form"):
+                            st.selectbox(
+                                "סוג הביטוח",
+                                list(CLAIM_GUIDES),
+                                key="claim_guide_type",
+                            )
+                            st.form_submit_button(
+                                "המשך",
+                                key="start_claim_guide",
+                                type="primary",
+                                on_click=_start_claim_guide,
+                            )
                     else:
-                        if claim_guide_chunks:
-                            with st.expander(
-                                f"מידע מהמקור הרשמי "
-                                f"({len(claim_guide_chunks)} קטעים)",
-                                expanded=True,
-                            ):
-                                for chunk in claim_guide_chunks:
-                                    st.markdown(chunk["text"])
-                                    if chunk["crawled_at"]:
-                                        st.caption(
-                                            "המידע נאסף מהאתר בתאריך "
-                                            f"{chunk['crawled_at']}."
+                        st.markdown(
+                            f"**נושא הליווי: {selected_claim_guide}**"
+                        )
+                        st.button(
+                            "בחירת סוג ביטוח אחר",
+                            key="change_claim_guide_type",
+                            on_click=_change_claim_guide_type,
+                        )
+
+                        if not st.session_state.claim_guide_messages:
+                            st.info(
+                                "ספרי לי בקצרה מה קרה או מה תרצי לברר. "
+                                "אין צורך לכתוב שם, מספר זהות או פרטי פוליסה."
+                            )
+
+                        for turn_index, turn in enumerate(
+                            st.session_state.claim_guide_messages
+                        ):
+                            with st.chat_message("user"):
+                                st.markdown(turn["question"])
+                            with st.chat_message("assistant"):
+                                if turn["sources"]:
+                                    st.markdown(
+                                        "מצאתי קטעים רלוונטיים ממידע רשמי "
+                                        "של הפניקס. הנה המקורות לעיון:"
+                                    )
+                                    for index, chunk in enumerate(
+                                        turn["sources"], 1
+                                    ):
+                                        st.markdown(f"**קטע {index}:**")
+                                        st.markdown(chunk["text"])
+                                        if chunk["crawled_at"]:
+                                            st.caption(
+                                                "המידע נאסף מהאתר בתאריך "
+                                                f"{chunk['crawled_at']}."
+                                            )
+                                        st.link_button(
+                                            f"פתיחת המקור הרשמי {index}",
+                                            chunk["url"],
+                                            icon=":material/open_in_new:",
+                                            key=(
+                                                "claim_guide_source_"
+                                                f"{turn_index}_{index}"
+                                            ),
                                         )
-                            st.link_button(
-                                "פתיחת עמוד התביעות הרשמי",
-                                claim_guide_url,
-                                icon=":material/open_in_new:",
+                                    st.caption(
+                                        "אפשר להמשיך לשאול על אותו תחום. "
+                                        "המידע כללי ואינו קובע אם תביעה תאושר."
+                                    )
+                                else:
+                                    st.warning(
+                                        "לא מצאתי קטע מתאים במקורות שאונדקסו "
+                                        "לתחום הזה. לא אנחש; אפשר לנסח את "
+                                        "השאלה אחרת או לפתוח את מרכז התביעות."
+                                    )
+                                    st.link_button(
+                                        "פתיחת מרכז התביעות של הפניקס",
+                                        CLAIMS_CENTER_URL,
+                                        icon=":material/open_in_new:",
+                                    )
+
+                        if "claim_guide_error" in st.session_state:
+                            st.error(st.session_state.claim_guide_error)
+
+                        with st.form("claim_guide_question_form"):
+                            st.text_area(
+                                "מה קרה או מה תרצי לשאול?",
+                                placeholder=(
+                                    "לדוגמה: הייתה נזילה בדירה, איזה מידע "
+                                    "כדאי לבדוק לפני הגשת תביעה?"
+                                ),
+                                key="claim_guide_question",
                             )
-                        else:
-                            st.warning(
-                                "לא נמצא במאגר מידע מאומת לתחום הזה, ולכן לא "
-                                "אציג צעדים משוערים. אפשר לעיין במרכז התביעות."
-                            )
-                            st.link_button(
-                                "פתיחת מרכז התביעות של הפניקס",
-                                CLAIMS_CENTER_URL,
-                                icon=":material/open_in_new:",
+                            st.form_submit_button(
+                                "שליחה למלווה",
+                                key="submit_claim_guide_question",
+                                type="primary",
+                                on_click=_submit_claim_guide_question,
                             )
 
             if st.session_state.pop("scroll_after_chat_update", False):

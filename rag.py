@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import tempfile
 from functools import lru_cache
@@ -39,6 +40,28 @@ OUT_OF_SCOPE = (
 
 class RAGError(RuntimeError):
     """An actionable error while retrieving or generating an answer."""
+
+
+class _GeminiFailoverModels:
+    def __init__(self, clients):
+        self._clients = clients
+
+    def generate_content(self, *args, **kwargs):
+        for index, client in enumerate(self._clients):
+            try:
+                return client.models.generate_content(*args, **kwargs)
+            except genai.errors.APIError as exc:
+                invalid_key = (
+                    exc.code == 401
+                    or getattr(exc, "status", None) == "API_KEY_INVALID"
+                )
+                if not invalid_key or index == len(self._clients) - 1:
+                    raise
+
+
+class _GeminiFailoverClient:
+    def __init__(self, clients):
+        self.models = _GeminiFailoverModels(clients)
 
 
 def _gemini_api_error_message(error):
@@ -188,21 +211,35 @@ def _not_found_result(prior_messages, uses_context=False):
 def _clients():
     load_dotenv()
     voyage_key = os.environ.get("VOYAGE_API_KEY")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    if not voyage_key or not gemini_key:
-        try:
-            voyage_key = voyage_key or st.secrets.get("VOYAGE_API_KEY")
-            gemini_key = gemini_key or st.secrets.get("GEMINI_API_KEY")
-        except StreamlitSecretNotFoundError:
-            pass
-    missing = [
-        name
-        for name, value in (
-            ("VOYAGE_API_KEY", voyage_key),
-            ("GEMINI_API_KEY", gemini_key),
+    gemini_key_names = (
+        "GEMINI_API_KEY",
+        *(f"GEMINI_API_KEY{index}" for index in range(1, 9)),
+        *(f"GEMINI_API_KEY_{index}" for index in range(1, 9)),
+    )
+    config_names = ("VOYAGE_API_KEY", *gemini_key_names)
+    config_values = {}
+    for name in config_names:
+        value = os.environ.get(name)
+        if not value:
+            try:
+                value = st.secrets.get(name)
+            except StreamlitSecretNotFoundError:
+                value = None
+        config_values[name] = value.strip() if isinstance(value, str) else value
+
+    voyage_key = config_values["VOYAGE_API_KEY"]
+    gemini_keys = list(
+        dict.fromkeys(
+            value
+            for name in gemini_key_names
+            if (value := config_values[name])
         )
-        if not value
-    ]
+    )
+    missing = []
+    if not voyage_key:
+        missing.append("VOYAGE_API_KEY")
+    if not gemini_keys:
+        missing.append("GEMINI_API_KEY")
     if missing:
         raise RAGError(
             f"חסרים מפתחות API: {', '.join(missing)}. "
@@ -210,7 +247,9 @@ def _clients():
         )
     return (
         voyageai.Client(api_key=voyage_key),
-        genai.Client(api_key=gemini_key),
+        _GeminiFailoverClient(
+            [genai.Client(api_key=key) for key in gemini_keys]
+        ),
     )
 
 
@@ -239,7 +278,15 @@ def _is_phoenix_url(url):
     )
 
 
-def get_claim_guide(url):
+def _claim_guide_tokens(text):
+    return {
+        token
+        for token in re.findall(r"[^\W_]+", text.casefold(), flags=re.UNICODE)
+        if len(token) > 1
+    }
+
+
+def get_claim_guide(url, question=None):
     parsed_url = urlparse(url)
     if (
         not _is_phoenix_url(url)
@@ -255,8 +302,21 @@ def get_claim_guide(url):
     except (ValueError, chromadb.errors.NotFoundError) as exc:
         raise RAGError("אינדקס המידע עדיין לא זמין. נסי שוב מאוחר יותר.") from exc
 
+    index_metadata = collection.get(include=["metadatas"])
+    matching_ids = []
+    for chunk_id, metadata in zip(index_metadata["ids"], index_metadata["metadatas"]):
+        source_url = metadata.get("url", "")
+        if (
+            _is_phoenix_url(source_url)
+            and urlparse(source_url).path.startswith(parsed_url.path)
+        ):
+            matching_ids.append(chunk_id)
+
+    if not matching_ids:
+        return []
+
     result = collection.get(
-        where={"url": url},
+        ids=matching_ids,
         include=["documents", "metadatas"],
     )
     chunks = []
@@ -272,13 +332,43 @@ def get_claim_guide(url):
                 chunk_order,
                 {
                     "title": metadata.get("header") or metadata.get("page_title") or url,
+                    "url": metadata.get("url") or url,
                     "text": document,
                     "crawled_at": metadata.get("crawled_at"),
                 },
             )
         )
     chunks.sort(key=lambda item: item[0])
-    return [chunk for _, chunk in chunks]
+    ordered_chunks = [chunk for _, chunk in chunks]
+
+    if question is None or not question.strip():
+        return ordered_chunks
+
+    query_tokens = _claim_guide_tokens(question)
+    if not query_tokens:
+        return []
+
+    document_frequencies = {}
+    tokenized_chunks = []
+    for chunk in ordered_chunks:
+        tokens = _claim_guide_tokens(chunk["text"])
+        tokenized_chunks.append(tokens)
+        for token in query_tokens & tokens:
+            document_frequencies[token] = document_frequencies.get(token, 0) + 1
+
+    ranked_chunks = []
+    for chunk, tokens in zip(ordered_chunks, tokenized_chunks):
+        matching_tokens = query_tokens & tokens
+        if not matching_tokens:
+            continue
+        score = sum(
+            1 / (1 + document_frequencies[token])
+            for token in matching_tokens
+        )
+        ranked_chunks.append((score, chunk))
+
+    ranked_chunks.sort(key=lambda item: item[0], reverse=True)
+    return [chunk for _, chunk in ranked_chunks[:3]]
 
 
 def _parse_answer(response_text, candidates):

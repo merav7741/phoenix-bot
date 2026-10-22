@@ -97,15 +97,23 @@ generated files under `data/` remain ignored.
 
 In the Community Cloud app settings, add `GEMINI_API_KEY` and `VOYAGE_API_KEY`
 as Streamlit secrets. Do not commit API keys or `.streamlit/secrets.toml`.
+For service continuity, you may also configure up to eight additional Gemini
+keys as `GEMINI_API_KEY1` through `GEMINI_API_KEY8` (or with an underscore
+before the number). The app tries the next configured key only after an
+authentication/permission error (401/403). A quota or rate-limit response
+(429) is reported as-is and does not trigger key switching; separate keys do
+not combine quotas or provide a way around Google AI Studio limits. Use keys
+only for projects and accounts you are authorized to administer.
 
 The floating chat has two modes: **Questions** uses the RAG answer flow, while
-**Guidance** provides a pre-claim guide for the insurance categories represented
-in the index. Guidance looks up the selected official Phoenix claims page
-directly in Chroma and displays its indexed text and link; this flow does not
-call Gemini or Voyage. If a selected page has no indexed content, the app says
-so and links to the claims center rather than inventing instructions. The guide
-provides general public information only and does not determine claim
-eligibility or request personal details.
+**Guidance** starts a conversational pre-claim flow: it asks for an insurance
+type, then accepts an incident description or a follow-up question. It searches
+the selected official Phoenix claims section in Chroma using local lexical
+matching and returns source excerpts with links; this flow does not call Gemini
+or Voyage. If no relevant indexed content is found, the app says so and links
+to the claims center rather than inventing instructions. The guide provides
+general public information only and does not determine claim eligibility or
+request personal details.
 
 ## Deploying to Render
 

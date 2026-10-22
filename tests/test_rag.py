@@ -33,9 +33,44 @@ class CloudDeploymentCompatibilityTests(unittest.TestCase):
         ):
             result = rag._clients()
 
-        self.assertEqual(result, (voyage, gemini))
+        self.assertIs(result[0], voyage)
+        self.assertIsInstance(result[1], rag._GeminiFailoverClient)
         voyage_client.assert_called_once_with(api_key="voyage-test-key")
         gemini_client.assert_called_once_with(api_key="gemini-test-key")
+
+    def test_multiple_gemini_keys_are_loaded_in_configured_order(self):
+        voyage = Mock()
+        gemini_clients = [Mock(), Mock(), Mock()]
+        secrets = {
+            "VOYAGE_API_KEY": "voyage-test-key",
+            "GEMINI_API_KEY2": "gemini-secret-key-2",
+        }
+
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "GEMINI_API_KEY": "gemini-env-key",
+                    "GEMINI_API_KEY1": "gemini-env-key-1",
+                },
+                clear=True,
+            ),
+            patch.object(rag, "st", SimpleNamespace(secrets=secrets)),
+            patch.object(rag, "load_dotenv"),
+            patch.object(rag.voyageai, "Client", return_value=voyage),
+            patch.object(
+                rag.genai,
+                "Client",
+                side_effect=gemini_clients,
+            ) as gemini_client,
+        ):
+            _, failover_client = rag._clients()
+
+        self.assertIsInstance(failover_client, rag._GeminiFailoverClient)
+        self.assertEqual(
+            [call.kwargs["api_key"] for call in gemini_client.call_args_list],
+            ["gemini-env-key", "gemini-env-key-1", "gemini-secret-key-2"],
+        )
 
     def test_chroma_opens_a_temporary_copy_of_the_checked_in_index(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -68,15 +103,34 @@ class ClaimGuideTests(unittest.TestCase):
     def test_claim_guide_reads_only_the_selected_official_source_without_api_clients(self):
         url = "https://www.fnx.co.il/claims-customer-service/claims-health-insurance/"
         collection = Mock()
-        collection.get.return_value = {
-            "ids": ["guide-2", "guide-0", "guide-1"],
-            "documents": ["קטע שני", "קטע ראשון", "קטע ביניים"],
-            "metadatas": [
-                {"header": "כותרת", "crawled_at": "2026-10-18"},
-                {"header": "כותרת", "crawled_at": "2026-10-18"},
-                {"header": "כותרת", "crawled_at": "2026-10-18"},
-            ],
-        }
+        collection.get.side_effect = [
+            {
+                "ids": ["guide-2", "guide-0", "other-0", "guide-1"],
+                "metadatas": [
+                    {"url": f"{url}surgeries/"},
+                    {"url": url},
+                    {"url": "https://www.fnx.co.il/claims-customer-service/claims-pets/"},
+                    {"url": f"{url}surgeries/"},
+                ],
+            },
+            {
+                "ids": ["guide-2", "guide-0", "guide-1"],
+                "documents": ["קטע שני", "קטע ראשון", "קטע ביניים"],
+                "metadatas": [
+                    {
+                        "url": f"{url}surgeries/",
+                        "header": "כותרת",
+                        "crawled_at": "2026-10-18",
+                    },
+                    {"url": url, "header": "כותרת", "crawled_at": "2026-10-18"},
+                    {
+                        "url": f"{url}surgeries/",
+                        "header": "כותרת",
+                        "crawled_at": "2026-10-18",
+                    },
+                ],
+            },
+        ]
 
         with tempfile.TemporaryDirectory() as temp:
             index_path = Path(temp)
@@ -96,10 +150,58 @@ class ClaimGuideTests(unittest.TestCase):
             [chunk["text"] for chunk in guides],
             ["קטע ראשון", "קטע ביניים", "קטע שני"],
         )
-        collection.get.assert_called_once_with(
-            where={"url": url},
-            include=["documents", "metadatas"],
+        self.assertEqual(
+            [chunk["url"] for chunk in guides],
+            [url, f"{url}surgeries/", f"{url}surgeries/"],
         )
+        self.assertEqual(
+            collection.get.call_args_list[0].kwargs,
+            {"include": ["metadatas"]},
+        )
+        self.assertEqual(
+            set(collection.get.call_args_list[1].kwargs["ids"]),
+            {"guide-0", "guide-1", "guide-2"},
+        )
+        self.assertEqual(
+            collection.get.call_args_list[1].kwargs["include"],
+            ["documents", "metadatas"],
+        )
+
+    def test_claim_guide_ranks_source_chunks_by_question_terms(self):
+        url = "https://www.fnx.co.il/claims-customer-service/claims-health-insurance/"
+        collection = Mock()
+        collection.get.side_effect = [
+            {
+                "ids": ["relevant-0", "unrelated-0"],
+                "metadatas": [{"url": url}, {"url": url}],
+            },
+            {
+                "ids": ["relevant-0", "unrelated-0"],
+                "documents": [
+                    "הגשת תביעה לאחר ניתוח בבית חולים",
+                    "מידע כללי על שירותי בריאות",
+                ],
+                "metadatas": [
+                    {"url": url, "header": "תביעה"},
+                    {"url": url, "header": "שירותי בריאות"},
+                ],
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temp:
+            index_path = Path(temp)
+            (index_path / "chroma.sqlite3").touch()
+            with (
+                patch.object(rag, "DB_DIR", index_path),
+                patch.object(rag, "_load_collection", return_value=(None, collection)),
+            ):
+                guides = rag.get_claim_guide(
+                    url,
+                    question="תביעה לאחר ניתוח",
+                )
+
+        self.assertEqual(len(guides), 1)
+        self.assertEqual(guides[0]["text"], "הגשת תביעה לאחר ניתוח בבית חולים")
 
     def test_claim_guide_rejects_non_claims_urls(self):
         with patch.object(rag, "_load_collection") as load_collection:
@@ -113,11 +215,7 @@ class ClaimGuideTests(unittest.TestCase):
     def test_claim_guide_returns_empty_when_the_selected_page_is_not_indexed(self):
         url = "https://www.fnx.co.il/claims-customer-service/claims-health-insurance/"
         collection = Mock()
-        collection.get.return_value = {
-            "ids": [],
-            "documents": [],
-            "metadatas": [],
-        }
+        collection.get.return_value = {"ids": [], "metadatas": []}
 
         with tempfile.TemporaryDirectory() as temp:
             index_path = Path(temp)
@@ -128,8 +226,72 @@ class ClaimGuideTests(unittest.TestCase):
             ):
                 self.assertEqual(rag.get_claim_guide(url), [])
 
+        collection.get.assert_called_once_with(include=["metadatas"])
+
 
 class GeminiApiFailureTests(unittest.TestCase):
+    def test_invalid_key_falls_back_to_next_configured_key(self):
+        first_client = Mock()
+        first_client.models.generate_content.side_effect = rag.genai.errors.APIError(
+            400,
+            {"error": {"status": "API_KEY_INVALID", "message": "invalid key"}},
+        )
+        second_client = Mock()
+        expected_response = object()
+        second_client.models.generate_content.return_value = expected_response
+        failover_client = rag._GeminiFailoverClient(
+            [first_client, second_client]
+        )
+
+        result = failover_client.models.generate_content(
+            model=rag.ANSWER_MODEL,
+            contents="test",
+        )
+
+        self.assertIs(result, expected_response)
+        first_client.models.generate_content.assert_called_once()
+        second_client.models.generate_content.assert_called_once()
+
+    def test_generic_permission_error_does_not_rotate_keys(self):
+        first_client = Mock()
+        first_client.models.generate_content.side_effect = rag.genai.errors.APIError(
+            403,
+            {"error": {"status": "PERMISSION_DENIED", "message": "not allowed"}},
+        )
+        second_client = Mock()
+        failover_client = rag._GeminiFailoverClient(
+            [first_client, second_client]
+        )
+
+        with self.assertRaises(rag.genai.errors.APIError):
+            failover_client.models.generate_content(
+                model=rag.ANSWER_MODEL,
+                contents="test",
+            )
+
+        first_client.models.generate_content.assert_called_once()
+        second_client.models.generate_content.assert_not_called()
+
+    def test_quota_error_does_not_try_another_key(self):
+        first_client = Mock()
+        first_client.models.generate_content.side_effect = rag.genai.errors.APIError(
+            429,
+            {"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota"}},
+        )
+        second_client = Mock()
+        failover_client = rag._GeminiFailoverClient(
+            [first_client, second_client]
+        )
+
+        with self.assertRaises(rag.genai.errors.APIError):
+            failover_client.models.generate_content(
+                model=rag.ANSWER_MODEL,
+                contents="test",
+            )
+
+        first_client.models.generate_content.assert_called_once()
+        second_client.models.generate_content.assert_not_called()
+
     def test_quota_error_does_not_misreport_context_as_unclear(self):
         gemini = Mock()
         gemini.models.generate_content.side_effect = rag.genai.errors.APIError(

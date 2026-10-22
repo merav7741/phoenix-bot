@@ -10,7 +10,7 @@ from streamlit.testing.v1 import AppTest
 
 
 class FloatingChatTests(unittest.TestCase):
-    def test_pre_claim_guide_uses_source_content_without_calling_gemini(self):
+    def test_claim_guide_is_a_conversation_and_keeps_followups_in_topic(self):
         with (
             patch("rag.get_answer") as answer,
             patch(
@@ -18,6 +18,10 @@ class FloatingChatTests(unittest.TestCase):
                 return_value=[
                     {
                         "title": "מידע רשמי",
+                        "url": (
+                            "https://www.fnx.co.il/claims-customer-service/"
+                            "claims-car-insurance/claims-property-car-insurance/"
+                        ),
                         "text": "קטע בדיקה מהמקור הרשמי",
                         "crawled_at": "2026-10-18",
                     }
@@ -42,17 +46,58 @@ class FloatingChatTests(unittest.TestCase):
             )
             app.segmented_control[0].set_value("ליווי").run()
             self.assertFalse(app.exception)
+            self.assertIn(
+                "היי, אני המלווה של הפניקס",
+                "\n".join(item.value for item in app.markdown),
+            )
+            self.assertIn(
+                "באיזה סוג ביטוח תרצי שאלווה אותך?",
+                "\n".join(item.value for item in app.markdown),
+            )
 
             next(
-                button for button in app.button if button.key == "show_claim_guide"
+                button for button in app.button if button.key == "start_claim_guide"
+            ).click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(
+                app.session_state["claim_guide_selected"],
+                "רכב — נזק לרכב",
+            )
+            self.assertIn(
+                "ספרי לי בקצרה מה קרה או מה תרצי לברר",
+                "\n".join(item.value for item in app.info),
+            )
+
+            app.text_area[0].set_value("הייתה תאונה עם נזק לרכב").run()
+            next(
+                button
+                for button in app.button
+                if button.key == "submit_claim_guide_question"
+            ).click().run()
+            self.assertFalse(app.exception)
+
+            app.text_area[0].set_value("איזה מסמכים כדאי לבדוק?").run()
+            next(
+                button
+                for button in app.button
+                if button.key == "submit_claim_guide_question"
             ).click().run()
 
         self.assertFalse(app.exception)
         self.assertEqual(
-            get_claim_guide.call_args.args[0],
-            "https://www.fnx.co.il/claims-customer-service/claims-car-insurance/claims-property-car-insurance/",
+            get_claim_guide.call_count,
+            2,
+        )
+        self.assertEqual(
+            get_claim_guide.call_args_list[0].args[1],
+            "הייתה תאונה עם נזק לרכב",
+        )
+        self.assertEqual(
+            get_claim_guide.call_args_list[1].args[1],
+            "איזה מסמכים כדאי לבדוק?",
         )
         answer.assert_not_called()
+        self.assertEqual(len(app.session_state["claim_guide_messages"]), 2)
         self.assertIn(
             "קטע בדיקה מהמקור הרשמי",
             "\n".join(item.value for item in app.markdown),
@@ -188,6 +233,7 @@ class FloatingChatTests(unittest.TestCase):
             self.assertTrue(pending_future.cancelled())
             self.assertEqual(app.session_state["chat_mode"], "שאלות")
             self.assertNotIn("claim_guide_selected", app.session_state)
+            self.assertNotIn("claim_guide_messages", app.session_state)
             self.assertNotIn("pending_question", app.session_state)
             self.assertNotIn("chat_error", app.session_state)
             self.assertTrue(app.session_state["chat_notice_visible"])
