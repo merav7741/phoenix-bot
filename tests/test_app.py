@@ -12,9 +12,9 @@ from streamlit.testing.v1 import AppTest
 class FloatingChatTests(unittest.TestCase):
     def test_claim_guide_is_a_conversation_and_keeps_followups_in_topic(self):
         with (
-            patch("rag.get_answer") as answer,
+            patch("server.rag.get_answer") as answer,
             patch(
-                "rag.get_claim_guide",
+                "server.rag.get_claim_guide",
                 return_value=[
                     {
                         "title": "מידע רשמי",
@@ -115,7 +115,7 @@ class FloatingChatTests(unittest.TestCase):
                 raise TimeoutError("Mock answer was not released by the test.")
             return {"answer": "תשובת בדיקה", "sources": []}
 
-        with patch("rag.get_answer", side_effect=fake_answer):
+        with patch("server.rag.get_answer", side_effect=fake_answer):
             app = AppTest.from_file(
                 Path(__file__).resolve().parents[1] / "app.py",
                 default_timeout=20,

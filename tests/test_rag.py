@@ -5,8 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-import rag
-from rag import NOT_FOUND, OUT_OF_SCOPE, PERSONAL, RAGError, _parse_answer
+from server import rag
+from server.rag import NOT_FOUND, OUT_OF_SCOPE, PERSONAL, RAGError, _parse_answer
 
 
 class CloudDeploymentCompatibilityTests(unittest.TestCase):

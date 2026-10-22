@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
 from server.guide_catalog import CLAIM_GUIDES
-from rag import RAGError, get_answer, get_claim_guide
+from server.rag import RAGError, get_answer, get_claim_guide
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist" / "frontend" / "browser"

@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from rag import RAGError
 from server.api import FRONTEND_DIST, app
+from server.rag import RAGError
 
 
 class ApiTests(unittest.TestCase):

@@ -3,8 +3,8 @@ from queue import Empty, Queue
 
 import streamlit as st
 
-from rag import RAGError, get_answer
 from server.guide_catalog import CLAIM_GUIDES, CLAIMS_CENTER_URL
+from server.rag import RAGError, get_answer
 
 PRIMARY = "#F15A24"
 NAVY = "#101D3A"
@@ -628,7 +628,7 @@ def _submit_claim_guide_question():
         return
 
     try:
-        from rag import get_claim_guide
+        from server.rag import get_claim_guide
 
         chunks = get_claim_guide(source_url, question=question)
     except ImportError:

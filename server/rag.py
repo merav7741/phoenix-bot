@@ -15,7 +15,7 @@ from google import genai
 from google.genai import types
 from streamlit.errors import StreamlitSecretNotFoundError
 
-DB_DIR = Path("data/chroma_voyage")
+DB_DIR = Path(__file__).resolve().parents[1] / "data" / "chroma_voyage"
 COLLECTION_NAME = "fnx"
 EMBEDDING_MODEL = "voyage-4"
 ANSWER_MODEL = "gemini-2.5-flash"

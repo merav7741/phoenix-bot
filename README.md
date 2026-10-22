@@ -42,7 +42,7 @@ app.py            legacy Streamlit demo (kept available)
 server/
   api.py          FastAPI endpoints and production delivery for the Angular app
   guide_catalog.py shared list of supported insurance guidance flows
-rag.py            shared retrieval, grounded answers, and claim-guide excerpts
+  rag.py          retrieval, grounded answers, and claim-guide excerpts
 frontend/
   src/app/        standalone Angular components for the Hebrew RTL experience
   proxy.conf.json local API proxy for Angular development
