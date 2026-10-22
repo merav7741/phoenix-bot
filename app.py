@@ -213,8 +213,9 @@ st.markdown(
         height: min(650px, calc(100vh - 124px));
         max-height: calc(100vh - 124px);
         display: flex;
+        flex-direction: column;
         overflow-x: hidden;
-        overflow-y: auto;
+        overflow-y: hidden;
         overscroll-behavior: contain;
         scrollbar-width: thin;
         scrollbar-color: #B8C1CF transparent;
@@ -225,17 +226,37 @@ st.markdown(
         border-radius: 18px;
         box-shadow: 0 20px 70px rgba(12, 22, 45, 0.24);
     }}
+    .st-key-chat_panel > [data-testid="stVerticalBlockBorderWrapper"] {{
+        flex: 1 1 auto;
+        min-height: 0;
+    }}
+    .st-key-chat_panel > [data-testid="stVerticalBlockBorderWrapper"] > [data-testid="stVerticalBlock"] {{
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+    }}
     .st-key-chat_panel [data-testid="stVerticalBlock"] {{
         gap: 0.55rem;
     }}
     .st-key-chat_header {{
-        position: sticky;
-        top: 0;
-        z-index: 2;
+        position: relative;
+        z-index: 20;
+        align-self: stretch;
+        flex: 0 0 auto;
         padding: 13px 0 11px;
         border-bottom: 1px solid #EDF0F4;
         margin-bottom: 8px;
         background: white;
+    }}
+    .st-key-chat_body {{
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: #B8C1CF transparent;
     }}
     .st-key-chat_header .brand-line {{
         color: {PRIMARY};
@@ -760,6 +781,14 @@ else:
                     st.session_state.claim_guide_error = str(error)
                     if st.session_state.claim_guide_messages:
                         st.session_state.claim_guide_messages[-1]["failed"] = True
+                except Exception:
+                    st.session_state.claim_guide_error = (
+                        "הבקשה לא הושלמה בגלל שגיאה. אפשר לנסות שוב."
+                    )
+                    if st.session_state.claim_guide_messages:
+                        turn = st.session_state.claim_guide_messages[-1]
+                        turn["pending"] = False
+                        turn["failed"] = True
                 else:
                     turn = st.session_state.claim_guide_messages[-1]
                     turn.update(
@@ -776,6 +805,17 @@ else:
                     st.session_state.pending_claim_guide_question = ""
                 st.session_state.scroll_after_chat_update = True
                 st.rerun(scope="app")
+
+        # A rerun or an older app version may leave a pending bubble without
+        # an active request. Never keep showing it as if work were ongoing.
+        if (
+            st.session_state.claim_guide_future is None
+            and not st.session_state.pending_claim_guide_question
+        ):
+            for turn in st.session_state.get("claim_guide_messages", []):
+                if turn.get("pending"):
+                    turn["pending"] = False
+                    turn["failed"] = True
 
         pending_question = st.session_state.pop("pending_question", "")
         if pending_question and st.session_state.answer_future is None:
@@ -855,198 +895,198 @@ else:
                         unsafe_allow_html=True,
                     )
 
-            if st.session_state.chat_notice_visible:
-                notice_text, notice_close = st.columns(
-                    [9, 1], vertical_alignment="center"
-                )
-                with notice_text:
-                    with st.container(key="chat_notice"):
-                        st.markdown(
-                            "ℹ️ המידע מבוסס על מקורות ציבוריים באתר הפניקס. "
-                            "הבוט אינו ניגש לפרטי פוליסה אישיים."
-                        )
-                with notice_close:
-                    with st.container(key="chat_notice_close"):
-                        st.button(
-                            "סגירת הודעת המידע",
-                            key="dismiss_chat_notice",
-                            icon=":material/close:",
-                            help="סגירת הודעת המידע",
-                            on_click=_dismiss_chat_notice,
-                        )
-
-            chat_mode = st.segmented_control(
-                "איך תרצי להיעזר בבוט?",
-                ["שאלות", "ליווי"],
-                label_visibility="collapsed",
-                key="chat_mode",
-                width="content",
-            )
-
-            if chat_mode == "שאלות":
-                with st.container(key="chat_messages"):
-                    if not st.session_state.messages:
-                        with st.container(key="chat_welcome"):
-                            with st.container(key="welcome_icon"):
-                                st.markdown(":material/support_agent:")
-                            st.markdown("### שלום, איך אפשר לעזור?")
-                            st.caption(
-                                "שאלו אותי על ביטוח, כיסוי או תביעה. "
-                                "אמצא מידע באתר ואצרף קישור למקור."
+            with st.container(key="chat_body"):
+                if st.session_state.chat_notice_visible:
+                    notice_text, notice_close = st.columns(
+                        [9, 1], vertical_alignment="center"
+                    )
+                    with notice_text:
+                        with st.container(key="chat_notice"):
+                            st.markdown(
+                                "ℹ️ המידע מבוסס על מקורות ציבוריים באתר הפניקס. "
+                                "הבוט אינו ניגש לפרטי פוליסה אישיים."
+                            )
+                    with notice_close:
+                        with st.container(key="chat_notice_close"):
+                            st.button(
+                                "סגירת הודעת המידע",
+                                key="dismiss_chat_notice",
+                                icon=":material/close:",
+                                help="סגירת הודעת המידע",
+                                on_click=_dismiss_chat_notice,
                             )
 
-                    for message in st.session_state.messages:
-                        avatar = (
-                            ":material/person:"
-                            if message["role"] == "user"
-                            else ":material/support_agent:"
-                        )
-                        with st.chat_message(message["role"], avatar=avatar):
-                            st.markdown(message["content"])
-                            for index, source in enumerate(
-                                message.get("sources", []), 1
-                            ):
-                                st.link_button(
-                                    f"מקור {index} · {source['title']}",
-                                    source["url"],
-                                    icon=":material/open_in_new:",
-                                    width="stretch",
+                chat_mode = st.segmented_control(
+                    "איך תרצי להיעזר בבוט?",
+                    ["שאלות", "ליווי"],
+                    label_visibility="collapsed",
+                    key="chat_mode",
+                    width="content",
+                )
+
+                if chat_mode == "שאלות":
+                    with st.container(key="chat_messages"):
+                        if not st.session_state.messages:
+                            with st.container(key="chat_welcome"):
+                                with st.container(key="welcome_icon"):
+                                    st.markdown(":material/support_agent:")
+                                st.markdown("### שלום, איך אפשר לעזור?")
+                                st.caption(
+                                    "שאלו אותי על ביטוח, כיסוי או תביעה. "
+                                    "אמצא מידע באתר ואצרף קישור למקור."
                                 )
 
-                if busy:
-                    st.status(
-                        f":shimmer[{st.session_state.answer_progress}]",
-                        state="running",
-                        expanded=False,
-                        type="compact",
-                    )
+                        for message in st.session_state.messages:
+                            avatar = (
+                                ":material/person:"
+                                if message["role"] == "user"
+                                else ":material/support_agent:"
+                            )
+                            with st.chat_message(message["role"], avatar=avatar):
+                                st.markdown(message["content"])
+                                for index, source in enumerate(
+                                    message.get("sources", []), 1
+                                ):
+                                    st.link_button(
+                                        f"מקור {index} · {source['title']}",
+                                        source["url"],
+                                        icon=":material/open_in_new:",
+                                        width="stretch",
+                                    )
 
-                if "chat_error" in st.session_state:
-                    st.error(st.session_state.pop("chat_error"))
+                    if busy:
+                        st.status(
+                            f":shimmer[{st.session_state.answer_progress}]",
+                            state="running",
+                            expanded=False,
+                            type="compact",
+                        )
 
-                if not st.session_state.messages:
-                    with st.container(key="chat_suggestions"):
-                        st.caption("אפשר להתחיל באחת השאלות:")
-                        for index, example in enumerate(EXAMPLES):
+                    if "chat_error" in st.session_state:
+                        st.error(st.session_state.pop("chat_error"))
+
+                    if not st.session_state.messages:
+                        with st.container(key="chat_suggestions"):
+                            st.caption("אפשר להתחיל באחת השאלות:")
+                            for index, example in enumerate(EXAMPLES):
+                                st.button(
+                                    example,
+                                    key=f"suggestion_{index}",
+                                    width="stretch",
+                                    disabled=busy,
+                                    on_click=_queue_question,
+                                    args=(example,),
+                                )
+
+                    with st.container(key="chat_composer"):
+                        input_column, send_column = st.columns(
+                            [5, 1], vertical_alignment="bottom"
+                        )
+                        with input_column:
+                            st.text_input(
+                                "השאלה שלך",
+                                placeholder="כתבו שאלה על ביטוח או תביעה...",
+                                label_visibility="collapsed",
+                                key="chat_question",
+                                on_change=_queue_question,
+                            )
+                        with send_column:
                             st.button(
-                                example,
-                                key=f"suggestion_{index}",
+                                "שליחה",
+                                key="send_chat",
+                                icon=":material/arrow_upward:",
                                 width="stretch",
                                 disabled=busy,
                                 on_click=_queue_question,
-                                args=(example,),
                             )
-
-                with st.container(key="chat_composer"):
-                    input_column, send_column = st.columns(
-                        [5, 1], vertical_alignment="bottom"
-                    )
-                    with input_column:
-                        st.text_input(
-                            "השאלה שלך",
-                            placeholder="כתבו שאלה על ביטוח או תביעה...",
-                            label_visibility="collapsed",
-                            key="chat_question",
-                            on_change=_queue_question,
-                        )
-                    with send_column:
-                        st.button(
-                            "שליחה",
-                            key="send_chat",
-                            icon=":material/arrow_upward:",
-                            width="stretch",
-                            disabled=busy,
-                            on_click=_queue_question,
-                        )
-            else:
-                with st.container(key="claim_guide_chat"):
-                    st.markdown("### היי, אני המלווה של הפניקס")
-                    st.caption(
-                        "אלווה אותך במידע ציבורי לפני הגשת תביעה. "
-                        "אני לא בודק זכאות ולא מחליף את הנחיות הפניקס."
-                    )
-
-                    selected_claim_guide = st.session_state.get(
-                        "claim_guide_selected"
-                    )
-                    if selected_claim_guide not in CLAIM_GUIDES:
-                        st.markdown(
-                            "**באיזה סוג ביטוח תרצי שאלווה אותך?**"
-                        )
-                        with st.form("claim_guide_start_form"):
-                            st.selectbox(
-                                "סוג הביטוח",
-                                list(CLAIM_GUIDES),
-                                key="claim_guide_type",
-                            )
-                            st.form_submit_button(
-                                "המשך",
-                                key="start_claim_guide",
-                                type="primary",
-                                on_click=_start_claim_guide,
-                            )
-                    else:
-                        st.markdown(
-                            f"**נושא הליווי: {selected_claim_guide}**"
-                        )
-                        st.button(
-                            "בחירת סוג ביטוח אחר",
-                            key="change_claim_guide_type",
-                            on_click=_change_claim_guide_type,
+                else:
+                    with st.container(key="claim_guide_chat"):
+                        st.markdown("### היי, אני המלווה של הפניקס")
+                        st.caption(
+                            "אלווה אותך במידע ציבורי לפני הגשת תביעה. "
+                            "אני לא בודק זכאות ולא מחליף את הנחיות הפניקס."
                         )
 
-                        if not st.session_state.claim_guide_messages:
-                            st.info(
-                                "ספרי לי בקצרה מה קרה או מה תרצי לברר. "
-                                "אין צורך לכתוב שם, מספר זהות או פרטי פוליסה."
+                        selected_claim_guide = st.session_state.get(
+                            "claim_guide_selected"
+                        )
+                        if selected_claim_guide not in CLAIM_GUIDES:
+                            st.markdown(
+                                "**באיזה סוג ביטוח תרצי שאלווה אותך?**"
+                            )
+                            with st.form("claim_guide_start_form"):
+                                st.selectbox(
+                                    "סוג הביטוח",
+                                    list(CLAIM_GUIDES),
+                                    key="claim_guide_type",
+                                )
+                                st.form_submit_button(
+                                    "המשך",
+                                    key="start_claim_guide",
+                                    type="primary",
+                                    on_click=_start_claim_guide,
+                                )
+                        else:
+                            st.markdown(
+                                f"**נושא הליווי: {selected_claim_guide}**"
+                            )
+                            st.button(
+                                "בחירת סוג ביטוח אחר",
+                                key="change_claim_guide_type",
+                                on_click=_change_claim_guide_type,
                             )
 
-                        for turn_index, turn in enumerate(
-                            st.session_state.claim_guide_messages
-                        ):
-                            with st.chat_message("user"):
-                                st.markdown(turn["question"])
-                            with st.chat_message("assistant"):
-                                if turn.get("pending"):
-                                    st.status(
-                                        f":shimmer[{st.session_state.claim_guide_progress}]",
-                                        state="running",
-                                        expanded=False,
-                                        type="compact",
-                                    )
-                                elif turn.get("failed"):
-                                    pass
-                                elif turn.get("answer"):
-                                    st.markdown(turn["answer"])
-                                    for index, source in enumerate(
-                                        turn["sources"], 1
-                                    ):
-                                        st.link_button(
-                                            f"פתיחת המקור הרשמי {index}",
-                                            source["url"],
-                                            icon=":material/open_in_new:",
-                                            key=(
-                                                "claim_guide_source_"
-                                                f"{turn_index}_{index}"
-                                            ),
+                            if not st.session_state.claim_guide_messages:
+                                st.info(
+                                    "ספרי לי בקצרה מה קרה או מה תרצי לברר. "
+                                    "אין צורך לכתוב שם, מספר זהות או פרטי פוליסה."
+                                )
+
+                            for turn_index, turn in enumerate(
+                                st.session_state.claim_guide_messages
+                            ):
+                                with st.chat_message("user"):
+                                    st.markdown(turn["question"])
+                                with st.chat_message("assistant"):
+                                    if turn.get("pending"):
+                                        st.status(
+                                            f":shimmer[{st.session_state.claim_guide_progress}]",
+                                            state="running",
+                                            expanded=False,
+                                            type="compact",
                                         )
-                                    st.caption("המידע כללי ואינו קובע אם תביעה תאושר.")
-                                else:
-                                    st.warning(
-                                        "לא מצאתי קטע מתאים במקורות שאונדקסו "
-                                        "לתחום הזה. לא אנחש; אפשר לנסח את "
-                                        "השאלה אחרת או לפתוח את מרכז התביעות."
-                                    )
-                                    st.link_button(
-                                        "פתיחת מרכז התביעות של הפניקס",
-                                        CLAIMS_CENTER_URL,
-                                        icon=":material/open_in_new:",
-                                    )
+                                    elif turn.get("failed"):
+                                        st.caption("הבקשה הזו לא הושלמה. אפשר לשלוח שאלה חדשה.")
+                                    elif turn.get("answer"):
+                                        st.markdown(turn["answer"])
+                                        for index, source in enumerate(
+                                            turn["sources"], 1
+                                        ):
+                                            st.link_button(
+                                                f"פתיחת המקור הרשמי {index}",
+                                                source["url"],
+                                                icon=":material/open_in_new:",
+                                                key=(
+                                                    "claim_guide_source_"
+                                                    f"{turn_index}_{index}"
+                                                ),
+                                            )
+                                        st.caption("המידע כללי ואינו קובע אם תביעה תאושר.")
+                                    else:
+                                        st.warning(
+                                            "לא מצאתי קטע מתאים במקורות שאונדקסו "
+                                            "לתחום הזה. לא אנחש; אפשר לנסח את "
+                                            "השאלה אחרת או לפתוח את מרכז התביעות."
+                                        )
+                                        st.link_button(
+                                            "פתיחת מרכז התביעות של הפניקס",
+                                            CLAIMS_CENTER_URL,
+                                            icon=":material/open_in_new:",
+                                        )
 
-                        if "claim_guide_error" in st.session_state:
-                            st.error(st.session_state.claim_guide_error)
+                            if "claim_guide_error" in st.session_state:
+                                st.error(st.session_state.claim_guide_error)
 
-                        with st.form("claim_guide_question_form"):
                             guide_request_pending = bool(
                                 st.session_state.get("pending_claim_guide_question")
                             ) or st.session_state.claim_guide_future is not None
@@ -1057,9 +1097,8 @@ else:
                                     "כדאי לבדוק לפני הגשת תביעה?"
                                 ),
                                 key="claim_guide_question",
-                                disabled=guide_request_pending,
                             )
-                            st.form_submit_button(
+                            st.button(
                                 "שליחה למלווה",
                                 key="submit_claim_guide_question",
                                 type="primary",
@@ -1067,22 +1106,22 @@ else:
                                 on_click=_submit_claim_guide_question,
                             )
 
-            if st.session_state.pop("scroll_after_chat_update", False):
-                st.html(
-                    """
-                    <script>
-                    requestAnimationFrame(() => requestAnimationFrame(() => {
-                        const panel = document.querySelector(".st-key-chat_panel");
-                        if (panel) {
-                            panel.scrollTo({
-                                top: panel.scrollHeight,
-                                behavior: "smooth"
-                            });
-                        }
-                    }));
-                    </script>
-                    """,
-                    unsafe_allow_javascript=True,
-                )
+                if st.session_state.pop("scroll_after_chat_update", False):
+                    st.html(
+                        """
+                        <script>
+                        requestAnimationFrame(() => requestAnimationFrame(() => {
+                            const panel = document.querySelector(".st-key-chat_body");
+                            if (panel) {
+                                panel.scrollTo({
+                                    top: panel.scrollHeight,
+                                    behavior: "smooth"
+                                });
+                            }
+                        }));
+                        </script>
+                        """,
+                        unsafe_allow_javascript=True,
+                    )
 
     render_chat_panel()

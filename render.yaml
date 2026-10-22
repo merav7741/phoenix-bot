@@ -5,8 +5,8 @@ services:
     plan: free
     healthCheckPath: /api/health
     envVars:
-      - key: GEMINI_API_KEY
-        sync: false
+      # - key: GEMINI_API_KEY
+      #   sync: false
       - key: GEMINI_API_KEY1
         sync: false
       - key: GEMINI_API_KEY2
