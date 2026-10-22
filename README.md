@@ -157,8 +157,8 @@ keys as `GEMINI_API_KEY1` through `GEMINI_API_KEY8` (or with an underscore
 before the number). The app skips unset or duplicate keys and tries configured
 keys in order. Any Gemini API error (exhausted quota, invalid key, a model the
 key cannot use, or an overloaded model) moves on to the next key. If every key
-fails with `gemini-2.5-flash`, all keys are tried again with the fallback model
-`gemini-3.8-flash`; only when everything fails is an error shown. The key list is cached for the
+fails with `gemini-2.5-flash`, all keys are tried again with the fallback models
+`gemini-3.6-flash`, `gemini-3.5-flash` and `gemini-3.8-flash`, in that order; only when everything fails is an error shown. The key list is cached for the
 lifetime of the app process, so restart or redeploy the service after changing
 environment variables.
 

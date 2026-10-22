@@ -24,9 +24,10 @@ DB_DIR = Path(__file__).resolve().parents[1] / "data" / "chroma_voyage"
 COLLECTION_NAME = "fnx"
 EMBEDDING_MODEL = "voyage-4"
 ANSWER_MODEL = "gemini-2.5-flash"
-# Tried with every key when ANSWER_MODEL fails, e.g. for keys from newer
-# projects that no longer have access to ANSWER_MODEL.
-FALLBACK_ANSWER_MODELS = ("gemini-3.8-flash",)
+# Tried in order with every key when ANSWER_MODEL fails, e.g. for keys from
+# newer projects that no longer have access to ANSWER_MODEL. gemini-3.8-flash
+# is often overloaded, so it comes last.
+FALLBACK_ANSWER_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash")
 # A hung request must not leave the user waiting forever.
 GEMINI_REQUEST_TIMEOUT_MS = 45_000
 GEMINI_FAILOVER_BUDGET_SECONDS = 90
