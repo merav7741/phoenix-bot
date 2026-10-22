@@ -252,13 +252,38 @@ class GeminiApiFailureTests(unittest.TestCase):
         first_client.models.generate_content.assert_called_once()
         second_client.models.generate_content.assert_called_once()
 
-    def test_generic_permission_error_does_not_rotate_keys(self):
+    def test_any_api_error_falls_back_to_next_configured_key(self):
         first_client = Mock()
         first_client.models.generate_content.side_effect = rag.genai.errors.APIError(
-            403,
-            {"error": {"status": "PERMISSION_DENIED", "message": "not allowed"}},
+            404,
+            {"error": {"status": "NOT_FOUND", "message": "model unavailable"}},
         )
         second_client = Mock()
+        expected_response = object()
+        second_client.models.generate_content.return_value = expected_response
+        failover_client = rag._GeminiFailoverClient(
+            [first_client, second_client]
+        )
+
+        result = failover_client.models.generate_content(
+            model=rag.ANSWER_MODEL,
+            contents="test",
+        )
+
+        self.assertIs(result, expected_response)
+        second_client.models.generate_content.assert_called_once_with(
+            model=rag.ANSWER_MODEL, contents="test"
+        )
+
+    def test_all_keys_failing_tries_fallback_model_then_raises_last_error(self):
+        unavailable = rag.genai.errors.APIError(
+            503,
+            {"error": {"status": "UNAVAILABLE", "message": "overloaded"}},
+        )
+        first_client = Mock()
+        first_client.models.generate_content.side_effect = unavailable
+        second_client = Mock()
+        second_client.models.generate_content.side_effect = unavailable
         failover_client = rag._GeminiFailoverClient(
             [first_client, second_client]
         )
@@ -269,8 +294,16 @@ class GeminiApiFailureTests(unittest.TestCase):
                 contents="test",
             )
 
-        first_client.models.generate_content.assert_called_once()
-        second_client.models.generate_content.assert_not_called()
+        models_tried = [
+            call.kwargs["model"]
+            for call in first_client.models.generate_content.call_args_list
+        ]
+        self.assertEqual(
+            models_tried, [rag.ANSWER_MODEL, *rag.FALLBACK_ANSWER_MODELS]
+        )
+        self.assertEqual(
+            second_client.models.generate_content.call_count, len(models_tried)
+        )
 
     def test_quota_error_falls_back_to_next_configured_key(self):
         first_client = Mock()

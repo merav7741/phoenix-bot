@@ -23,6 +23,9 @@ DB_DIR = Path(__file__).resolve().parents[1] / "data" / "chroma_voyage"
 COLLECTION_NAME = "fnx"
 EMBEDDING_MODEL = "voyage-4"
 ANSWER_MODEL = "gemini-2.5-flash"
+# Tried with every key when ANSWER_MODEL fails, e.g. for keys from newer
+# projects that no longer have access to ANSWER_MODEL.
+FALLBACK_ANSWER_MODELS = ("gemini-3.8-flash",)
 RESULTS_COUNT = 5
 # Provisional cosine-distance cutoff; calibrate it against the evaluation set.
 MAX_COSINE_DISTANCE = 0.55
@@ -54,21 +57,21 @@ class _GeminiFailoverModels:
     def __init__(self, clients):
         self._clients = clients
 
-    def generate_content(self, *args, **kwargs):
-        for index, client in enumerate(self._clients):
-            try:
-                return client.models.generate_content(*args, **kwargs)
-            except genai.errors.APIError as exc:
-                invalid_key = (
-                    exc.code == 401
-                    or getattr(exc, "status", None) == "API_KEY_INVALID"
-                )
-                quota_limited = exc.code == 429
-                if (
-                    not (invalid_key or quota_limited)
-                    or index == len(self._clients) - 1
-                ):
-                    raise
+    def generate_content(self, *, model, **kwargs):
+        # Keys fail independently (quota, revoked key, no access to a model,
+        # overload), so any API error moves on to the next key, and then to
+        # the fallback models. Only the last error is raised.
+        models = list(dict.fromkeys((model, *FALLBACK_ANSWER_MODELS)))
+        last_error = None
+        for candidate_model in models:
+            for client in self._clients:
+                try:
+                    return client.models.generate_content(
+                        model=candidate_model, **kwargs
+                    )
+                except genai.errors.APIError as exc:
+                    last_error = exc
+        raise last_error
 
 
 class _GeminiFailoverClient:
