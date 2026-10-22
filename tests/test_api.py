@@ -1,10 +1,11 @@
+import re
 import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from rag import RAGError
-from server.api import app
+from server.api import FRONTEND_DIST, app
 
 
 class ApiTests(unittest.TestCase):
@@ -16,6 +17,29 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_production_angular_page_and_bundle_are_served(self):
+        index_file = FRONTEND_DIST / "index.html"
+        if not index_file.is_file():
+            self.skipTest("Build the Angular frontend to test static serving.")
+
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("<app-root>", response.text)
+        bundle_match = re.search(r'src="([^"]+\.js)"', response.text)
+        self.assertIsNotNone(bundle_match)
+        bundle_path = bundle_match.group(1)
+        bundle = self.client.get(bundle_path)
+        self.assertEqual(bundle.status_code, 200)
+        self.assertIn("javascript", bundle.headers["content-type"])
+
+    def test_missing_frontend_asset_returns_not_found(self):
+        if not (FRONTEND_DIST / "index.html").is_file():
+            self.skipTest("Build the Angular frontend to test static serving.")
+
+        response = self.client.get("/missing-bundle.js")
+
+        self.assertEqual(response.status_code, 404)
 
     def test_guide_options_are_served_from_the_shared_catalog(self):
         response = self.client.get("/api/guide-options")
