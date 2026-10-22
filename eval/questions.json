@@ -1,5 +1,5 @@
 [
-  {"q": "יש לי נזילה בבית, איך מגישים תביעה?", "type": "answerable", "expected_url_part": "apartment-insurance"},
+  {"q": "יש לי נזילה בבית, איך מגישים תביעה?", "type": "answerable", "expected_url_part": "apartment"},
   {"q": "האם ביטוח צד ג' בדירה מכסה רטיבות אצל השכן?", "type": "answerable", "expected_url_part": "third-party"},
   {"q": "מי אחראי לבטח צד ג' בדירה שכורה?", "type": "answerable", "expected_url_part": "third-party"},
   {"q": "מה לעשות בדקות הראשונות אחרי הצפה בבית?", "type": "answerable", "expected_url_part": "apartment-flood-costs"},

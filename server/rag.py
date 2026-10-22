@@ -661,20 +661,51 @@ def _verify_answer(question, answer, cited_candidates, gemini_client):
     return result["verdict"]
 
 
-def _retrieve_candidates(search_question, voyage_client, collection, collection_size):
-    try:
-        embedding_result = voyage_client.embed(
-            [search_question],
-            model=EMBEDDING_MODEL,
-            input_type="query",
-        )
-    except voyageai.error.VoyageError as exc:
-        raise RAGError(
-            "שירות החיפוש לא זמין כרגע. בדקי את חיבור האינטרנט ואת מכסת Voyage."
-        ) from exc
+_query_embedding_cache = OrderedDict()
+_query_embedding_cache_lock = RLock()
+QUERY_EMBEDDING_CACHE_MAX_ENTRIES = 500
+# Free Voyage accounts allow only a few requests per minute, so a rate-limited
+# query waits for the window to reopen instead of failing immediately.
+VOYAGE_RATE_LIMIT_WAITS_SECONDS = (10, 20, 30)
 
+
+def _embed_query(search_question, voyage_client):
+    with _query_embedding_cache_lock:
+        cached = _query_embedding_cache.get(search_question)
+        if cached is not None:
+            _query_embedding_cache.move_to_end(search_question)
+            return cached
+
+    for wait in (*VOYAGE_RATE_LIMIT_WAITS_SECONDS, None):
+        try:
+            embedding_result = voyage_client.embed(
+                [search_question],
+                model=EMBEDDING_MODEL,
+                input_type="query",
+            )
+            break
+        except voyageai.error.RateLimitError as exc:
+            if wait is None:
+                raise RAGError(
+                    "יש כרגע עומס על שירות החיפוש. נסי שוב בעוד דקה."
+                ) from exc
+            time.sleep(wait)
+        except voyageai.error.VoyageError as exc:
+            raise RAGError(
+                "שירות החיפוש לא זמין כרגע. בדקי את חיבור האינטרנט ואת מכסת Voyage."
+            ) from exc
+
+    embedding = embedding_result.embeddings[0]
+    with _query_embedding_cache_lock:
+        _query_embedding_cache[search_question] = embedding
+        while len(_query_embedding_cache) > QUERY_EMBEDDING_CACHE_MAX_ENTRIES:
+            _query_embedding_cache.popitem(last=False)
+    return embedding
+
+
+def _retrieve_candidates(search_question, voyage_client, collection, collection_size):
     query_result = collection.query(
-        query_embeddings=[embedding_result.embeddings[0]],
+        query_embeddings=[_embed_query(search_question, voyage_client)],
         n_results=min(RESULTS_COUNT, collection_size),
         include=["documents", "metadatas", "distances"],
     )
