@@ -1,7 +1,13 @@
 # Phoenix RAG Bot
 
-**Live demo:** https://phoenix-bot-2meaqsw7hcfzcfdhzjwwnf.streamlit.app/
-(The submitted version is the Streamlit app, `app.py`. An Angular + FastAPI version also exists in the repo.)
+**Live demo (submitted version):** https://phoenix-rag-bot.onrender.com/
+Angular + FastAPI in one Docker service on Render. The service runs on Render's
+free plan and sleeps after 15 minutes of inactivity, so the first request may
+take about a minute while it starts.
+
+An earlier Streamlit version of the same bot (`app.py`) is also deployed at
+https://phoenix-bot-2meaqsw7hcfzcfdhzjwwnf.streamlit.app/ and uses the same
+RAG backend (`server/rag.py`).
 
 A Hebrew-language RAG chatbot built for the Open Code AI Hackathon 2026
 (Phoenix challenge). It answers customer questions strictly from the public
@@ -15,7 +21,8 @@ answer, and says "this isn't on the site" when the information is missing.
 - **Boundaries:** no personal advice and no access to customer data.
 - **Conversation context:** recent turns help resolve follow-up questions; when the
   reference is ambiguous, the bot asks a clarifying question before searching.
-  The full transcript is kept only in the active Streamlit session.
+  The transcript is kept only for the active session (in the browser for the
+  Angular app, in the Streamlit session for `app.py`) and is never saved.
 - **Typos and tone:** colloquial Hebrew and clear typing/spelling mistakes are
   normalized for search only when retrieval is weak; answers should be clear,
   considerate, and grounded in retrieved sources without guessing or inventing
@@ -29,22 +36,65 @@ answer, and says "this isn't on the site" when the information is missing.
 | Vector index (Voyage + Chroma) | Done |
 | Retrieval with conversation context and typo recovery | Done |
 | Answer layer (Gemini) with citations, grounding check and abstention | Done |
+| Angular + FastAPI app (deployed on Render, submitted) | Done |
 | Streamlit UI (deployed on Streamlit Community Cloud) | Done |
 | Pre-claim guidance mode (original feature) | Done |
-| Evaluation set (30 questions: answerable / personal / unanswerable) | Written |
+| Evaluation set (30 questions + 10 off-topic/manipulation) and runner | Done |
 
 ## Architecture
+
+### Components
 ```
-sitemap -> filter -> crawl -> clean -> chunk -> embed -> Chroma
-                                                          |
-question + recent conversation -> contextualize or clarify -> retrieve -> threshold -> LLM (chunks only) -> verify cited claims -> answer + source URL
+Browser (Angular, Hebrew RTL)
+   |  HTTPS, same origin
+   v
+FastAPI (server/api.py) ── one Docker service on Render
+   |
+   v
+RAG layer (server/rag.py)
+   |-- Voyage AI  voyage-4        embeds the question (cloud API)
+   |-- Chroma     data/chroma_voyage  local vector index, 4,216 chunks, inside the image
+   '-- Gemini     gemini-2.5-flash    rewrites, answers and verifies (cloud API)
 ```
+No model runs on our server: Voyage and Gemini are called through their APIs,
+and the API keys live only in the server's environment variables.
+
+### Offline: building the index
+```
+sitemap.xml -> filter sections + robots.txt -> crawl -> clean HTML -> drop duplicates
+            -> chunk by headings -> embed (Voyage) -> Chroma
+```
+
+### Online: answering a question
+```
+question + last turns
+  -> contextualize (Gemini): turn a follow-up into a standalone question, or ask a clarifying question
+  -> embed (Voyage) -> top 5 chunks from Chroma
+  -> threshold: cosine distance above 0.55 -> "not found" (no LLM answer)
+  -> answer (Gemini, JSON schema): only from the supplied chunks, must cite chunk ids
+  -> verify (Gemini): is every claim supported by the cited chunks?
+  -> answer + links to the source pages, or a fixed "not found" / "personal" / "out of scope" reply
+```
+
+### Pre-claim guidance (original feature)
+```
+insurance type -> official claims page for that type -> its chunks from Chroma
+  -> lexical match with the user's description -> Gemini writes steps from those excerpts only
+  -> answers that cite no supplied excerpt are rejected -> steps + source links
+```
+
+### Reliability
+- Gemini failover across up to nine API keys and several fallback models,
+  starting with the last pair that worked.
+- Timeouts on every external call (Gemini 45 s, Voyage 20 s).
+- Voyage rate-limit wait and retry, and a cache of query embeddings and of
+  standalone answers (1 hour), so repeated questions cost no API calls.
 
 ## Project structure
 ```
-app.py            Streamlit app (the deployed, submitted version)
+app.py            Streamlit version of the app (alternative UI)
 server/
-  api.py          FastAPI endpoints and production delivery for the Angular app
+  api.py          FastAPI endpoints; also serves the compiled Angular app
   guide_catalog.py shared list of supported insurance guidance flows
   rag.py          retrieval, grounded answers, and claim-guide excerpts
 frontend/
@@ -62,14 +112,15 @@ ingest/
 eval/
   questions.json          30 questions: answerable / personal / unanswerable
   negative_questions.json off-topic and manipulation questions
+  run_eval.py             runs every question against the bot and reports pass/fail
 tests/
   test_rag.py             offline tests for answer boundaries and citations
   test_api.py             FastAPI contract and validation tests
   test_app.py             Streamlit UI tests
   test_deployment.py      deployment and index packaging tests
 scripts/          small helper scripts
-Dockerfile        image for the Angular + FastAPI version
-render.yaml       Render Blueprint for the Angular + FastAPI version
+Dockerfile        image for the submitted Angular + FastAPI version
+render.yaml       Render Blueprint for the submitted version
 data/
   chroma_voyage/  deployment index (included in Git; all other generated data is ignored)
 ```
@@ -91,12 +142,7 @@ data/
    ```
 
 ## Run locally
-Streamlit app (the submitted version):
-```
-streamlit run app.py
-```
-
-Optional Angular + FastAPI version: start the API:
+Angular + FastAPI (the submitted version): start the API:
 ```
 python -m uvicorn server.api:app --reload --port 8000
 ```
@@ -112,6 +158,16 @@ The Angular development server proxies `/api` requests to FastAPI. Use npm 11
 for dependency installation (`npx npm@11 ci`) to match the pinned Docker build.
 In production, Angular is compiled into the Docker image and served by FastAPI
 from the same origin as the API.
+
+Streamlit version:
+```
+streamlit run app.py
+```
+
+Evaluation (calls the real APIs, so it uses quota):
+```
+python eval/run_eval.py
+```
 
 To rebuild the public source index when needed:
 ```
@@ -141,9 +197,9 @@ script skips chunk IDs already present, so it can resume after an interruption.
 The current local corpus contains 709 page files and generates 4,216 chunks;
 chunks shorter than the indexer's 150-character minimum are skipped.
 
-## Deploying to Streamlit Community Cloud
+## Deploying to Streamlit Community Cloud (alternative version)
 
-The submitted cloud app runs the Streamlit entry point `app.py`. The active
+This deployment runs the Streamlit entry point `app.py`. The active
 Chroma index is stored in `data/chroma_voyage` and included in Git so Community
 Cloud receives it with the repository. It contains text collected from public
 Phoenix website pages. On first use, the app copies the index to a temporary
@@ -177,7 +233,7 @@ only and does not determine claim eligibility or request personal details.
 Try it: open the bot → **ליווי** → choose an insurance type → describe what
 happened (e.g. "הייתה נזילה בדירה, מה כדאי לבדוק קודם?").
 
-## Deploying the Angular app to Render (optional)
+## Deploying the Angular app to Render (submitted version)
 
 The Angular + FastAPI app is configured as a Render Docker Blueprint in
 `render.yaml`. Docker compiles `frontend/` and starts the API in
